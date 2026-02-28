@@ -1,0 +1,165 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 20% 97%;
+    --foreground: 215 30% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 30% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 30% 15%;
+
+    --primary: 215 55% 22%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 25% 93%;
+    --secondary-foreground: 215 30% 25%;
+
+    --muted: 210 20% 95%;
+    --muted-foreground: 215 15% 50%;
+
+    --accent: 210 80% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 145 63% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 215 55% 22%;
+
+    --radius: 0.625rem;
+
+    --sidebar-background: 215 55% 18%;
+    --sidebar-foreground: 210 30% 90%;
+    --sidebar-primary: 210 80% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 215 45% 25%;
+    --sidebar-accent-foreground: 210 30% 95%;
+    --sidebar-border: 215 40% 28%;
+    --sidebar-ring: 210 80% 60%;
+    --sidebar-muted: 215 30% 40%;
+
+    --chart-income: 145 63% 40%;
+    --chart-expense: 0 72% 51%;
+    --chart-blue: 210 80% 50%;
+    --chart-amber: 38 92% 50%;
+    --chart-purple: 270 60% 55%;
+  }
+
+  .dark {
+    --background: 215 30% 8%;
+    --foreground: 210 30% 92%;
+    --card: 215 30% 12%;
+    --card-foreground: 210 30% 92%;
+    --popover: 215 30% 12%;
+    --popover-foreground: 210 30% 92%;
+    --primary: 210 80% 55%;
+    --primary-foreground: 215 30% 8%;
+    --secondary: 215 25% 18%;
+    --secondary-foreground: 210 30% 85%;
+    --muted: 215 20% 16%;
+    --muted-foreground: 215 15% 55%;
+    --accent: 210 80% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 145 63% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 0 0% 100%;
+    --border: 215 20% 22%;
+    --input: 215 20% 22%;
+    --ring: 210 80% 55%;
+    --sidebar-background: 215 40% 10%;
+    --sidebar-foreground: 210 30% 85%;
+    --sidebar-primary: 210 80% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 215 35% 16%;
+    --sidebar-accent-foreground: 210 30% 90%;
+    --sidebar-border: 215 30% 18%;
+    --sidebar-ring: 210 80% 60%;
+    --sidebar-muted: 215 20% 40%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  .stat-card {
+    @apply rounded-xl bg-card p-6 shadow-sm border border-border/60 transition-all duration-200 hover:shadow-md;
+  }
+
+  .stat-card-accent {
+    @apply rounded-xl p-6 shadow-sm border-0 transition-all duration-200 hover:shadow-md;
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(215 55% 30%) 100%);
+    color: hsl(var(--primary-foreground));
+  }
+
+  .data-table {
+    @apply w-full text-sm;
+  }
+
+  .data-table th {
+    @apply bg-muted/60 px-4 py-3 text-left font-semibold text-foreground/80 uppercase text-xs tracking-wider;
+  }
+
+  .data-table td {
+    @apply px-4 py-3 border-b border-border/40;
+  }
+
+  .data-table tr:hover td {
+    @apply bg-muted/30;
+  }
+
+  .status-paid {
+    @apply inline-flex items-center gap-1 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium;
+    color: hsl(var(--success));
+  }
+
+  .status-debt {
+    @apply inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-medium;
+    color: hsl(var(--destructive));
+  }
+
+  .status-partial {
+    @apply inline-flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-medium;
+    color: hsl(var(--warning));
+  }
+
+  .page-header {
+    @apply mb-8;
+  }
+
+  .page-title {
+    @apply text-2xl font-bold text-foreground;
+  }
+
+  .page-subtitle {
+    @apply text-sm text-muted-foreground mt-1;
+  }
+}

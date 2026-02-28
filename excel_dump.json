@@ -1,0 +1,88 @@
+{
+    "sheets": [
+        "M\u00dcLK\u0130YET",
+        "A\u0130DAT HESABI",
+        "OSMAN KOKA 2026",
+        "GEL\u0130R TABLOSU AYLAR 2026 ",
+        "2026 YILI \u0130CMAL",
+        "OCAK 2026",
+        "\u015eUBAT 2026",
+        "MART 2026",
+        "N\u0130SAN 2026",
+        "MAYIS 2026",
+        "HAZ\u0130RAN 2026",
+        "TEMMUZ 2026",
+        "A\u011eUSTOS 2026",
+        "EYL\u00dcL 2026",
+        "EK\u0130M 2026",
+        "KASIM 2026",
+        "ARALIK 2026",
+        "KATILIMCI L\u0130SES\u0130",
+        "MUHASEBE \u00d6EME L\u0130STES\u0130",
+        "Sayfa1"
+    ],
+    "first_sheet_cols": [
+        "Unnamed: 0",
+        "Unnamed: 1",
+        "Unnamed: 2",
+        "Unnamed: 3",
+        "Unnamed: 4",
+        "Unnamed: 5",
+        "Unnamed: 6",
+        "Unnamed: 7"
+    ],
+    "first_sheet_head": [
+        {
+            "Unnamed: 0": "SAFFET SABANCI APARTMANI",
+            "Unnamed: 1": NaN,
+            "Unnamed: 2": NaN,
+            "Unnamed: 3": NaN,
+            "Unnamed: 4": NaN,
+            "Unnamed: 5": NaN,
+            "Unnamed: 6": NaN,
+            "Unnamed: 7": NaN
+        },
+        {
+            "Unnamed: 0": "DA\u0130RE NO",
+            "Unnamed: 1": "M\u00dcLK SAH\u0130B\u0130",
+            "Unnamed: 2": "ADI SOYADI",
+            "Unnamed: 3": NaN,
+            "Unnamed: 4": "ASANS\u00d6R",
+            "Unnamed: 5": "2024 ASANS\u00d6R",
+            "Unnamed: 6": "ASANS\u00d6R 2025",
+            "Unnamed: 7": "ASANS\u00d6R"
+        },
+        {
+            "Unnamed: 0": 1,
+            "Unnamed: 1": "\u0130HSAN KUBAT",
+            "Unnamed: 2": "MAHMUT AYDO\u011eAN",
+            "Unnamed: 3": NaN,
+            "Unnamed: 4": NaN,
+            "Unnamed: 5": NaN,
+            "Unnamed: 6": 600,
+            "Unnamed: 7": NaN
+        },
+        {
+            "Unnamed: 0": 2,
+            "Unnamed: 1": "NECLA CELAL T\u00dcMER",
+            "Unnamed: 2": "\u015eahin DE\u011eENEK",
+            "Unnamed: 3": NaN,
+            "Unnamed: 4": 600,
+            "Unnamed: 5": NaN,
+            "Unnamed: 6": 600,
+            "Unnamed: 7": 650
+        },
+        {
+            "Unnamed: 0": 3,
+            "Unnamed: 1": "BERAT SABANCI",
+            "Unnamed: 2": "Ali YILDIZ",
+            "Unnamed: 3": NaN,
+            "Unnamed: 4": NaN,
+            "Unnamed: 5": NaN,
+            "Unnamed: 6": 600,
+            "Unnamed: 7": 650
+        }
+    ],
+    "ledger_sheet": null,
+    "ledger_preview": null
+}

@@ -1,0 +1,28 @@
+import { Apartment } from './initialData';
+
+export const importedApartments: Apartment[] = [
+  { daireNo: 1, sakinAdi: "MAHMUT AYDOĞAN", mulkSahibi: "İHSAN KUBAT", asansorTabi: true },
+  { daireNo: 2, sakinAdi: "Şahin DEĞENEK", mulkSahibi: "NECLA CELAL TÜMER", asansorTabi: true },
+  { daireNo: 3, sakinAdi: "Ali YILDIZ", mulkSahibi: "BERAT SABANCI", asansorTabi: true },
+  { daireNo: 4, sakinAdi: "Erdoğan GÜL", mulkSahibi: "NEVİN ZENGER", asansorTabi: true },
+  { daireNo: 5, sakinAdi: "Mehmet ÖZÇELİK", mulkSahibi: "SERPİL SABANCI", asansorTabi: true },
+  { daireNo: 6, sakinAdi: "Mehmet YILMAZ (YÖNETİCİ)", mulkSahibi: "MEHMET YILMAZ", asansorTabi: true },
+  { daireNo: 7, sakinAdi: "Hüseyin ŞEN ( SİNEM ŞEN )", mulkSahibi: "NECLA CELAL TÜMER", asansorTabi: true },
+  { daireNo: 8, sakinAdi: "Mahmut KORKUTATA", mulkSahibi: "NEVİN ZENGER", asansorTabi: true },
+  { daireNo: 9, sakinAdi: "Mustafa ERDOĞAN", mulkSahibi: "AYŞE KUBAT", asansorTabi: true },
+  { daireNo: 10, sakinAdi: "", mulkSahibi: "SERPİL SABANCI", asansorTabi: true },
+  { daireNo: 11, sakinAdi: "Akın YILMAZ", mulkSahibi: "GÖKAN SABANCI", asansorTabi: true },
+  { daireNo: 12, sakinAdi: "Mehmet ALTUN", mulkSahibi: "NECLA CELAL TÜMER", asansorTabi: true },
+  { daireNo: 13, sakinAdi: "Mustafa ÇAĞRI", mulkSahibi: "NEVİN ZENGER", asansorTabi: true },
+  { daireNo: 14, sakinAdi: "FATMA SOYSAL", mulkSahibi: "FATMA SOYSAL", asansorTabi: true },
+  { daireNo: 15, sakinAdi: "FATMA BIYIKLI", mulkSahibi: "SERPİL SABANCI", asansorTabi: true },
+  { daireNo: 16, sakinAdi: "", mulkSahibi: "GÖKAY SABANCI", asansorTabi: true },
+  { daireNo: 17, sakinAdi: "Vehbi ÇOBAN", mulkSahibi: "NECLA CELAL TÜMER", asansorTabi: true },
+  { daireNo: 18, sakinAdi: "Mehmet KANITEZ", mulkSahibi: "NEVİN ZENGER", asansorTabi: true },
+  { daireNo: 19, sakinAdi: "", mulkSahibi: "ÖMER KUBAT", asansorTabi: true },
+  { daireNo: 20, sakinAdi: "Satılmış EVCİ", mulkSahibi: "SERPİL SABANCI", asansorTabi: true },
+  { daireNo: 21, sakinAdi: "", mulkSahibi: "SERPİL SABANCI", asansorTabi: true },
+  { daireNo: 22, sakinAdi: "Serpil SABANCI", mulkSahibi: "SERPİL SABANCI", asansorTabi: true },
+  { daireNo: 23, sakinAdi: "KÜŞAT BÜYÜKTÜRK", mulkSahibi: "NEVİN ZENGER", asansorTabi: true },
+  { daireNo: 24, sakinAdi: "", mulkSahibi: "SEVİM SABANCI", asansorTabi: true },
+];

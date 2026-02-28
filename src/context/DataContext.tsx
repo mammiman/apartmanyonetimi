@@ -240,10 +240,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     api.fetchLogs(buildingId)
                 ]);
 
-                if (remoteApts && remoteApts.length > 0) setApartments(remoteApts);
-                if (remoteDues && remoteDues.length > 0) setDues(remoteDues);
-                if (remoteCols && remoteCols.length > 0) setDuesColumns(remoteCols);
-                if (remoteStaff && remoteStaff.length > 0) setStaffRecords(remoteStaff);
+                if (remoteApts) setApartments(remoteApts);
+                if (remoteDues) setDues(remoteDues);
+                if (remoteCols) setDuesColumns(remoteCols);
+                if (remoteStaff) setStaffRecords(remoteStaff);
 
                 let hasRemoteLedger = false;
                 const newLedger = { ...initialLedgerData };
@@ -254,9 +254,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         hasRemoteLedger = true;
                     }
                 }
-                if (hasRemoteLedger) setLedger(newLedger);
+                // Always set ledger exactly to DB state (empty or not) to avoid phantom data
+                setLedger(newLedger);
 
-                if (remoteLogs && remoteLogs.length > 0) {
+                if (remoteLogs) {
                     setLogs(remoteLogs.map(l => ({
                         id: l.id,
                         date: l.created_at,

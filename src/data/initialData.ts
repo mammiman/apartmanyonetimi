@@ -29,6 +29,7 @@ export interface LedgerRow {
   id: number;
   tarih: string;
   aciklama: string;
+  displayAciklama?: string;
   tutar: number;
   kategori: string;
   tip?: 'gelir' | 'gider';

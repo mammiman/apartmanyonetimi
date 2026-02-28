@@ -116,7 +116,11 @@ const ResidentDashboard = () => {
     const allLedgerExpenses: { ay: string; aciklama: string; tutar: number; tarih: string }[] = [];
     MONTHS_TR.forEach(month => {
         (ledger[month]?.giderler || []).forEach(g => {
-            allLedgerExpenses.push({ ay: month, aciklama: g.aciklama, tutar: g.tutar, tarih: g.tarih || '' });
+            let desc = g.displayAciklama || g.aciklama;
+            if (String(desc).startsWith('devir_from_')) {
+                desc = `${String(desc).replace('devir_from_', '')} ayından devir`;
+            }
+            allLedgerExpenses.push({ ay: month, aciklama: desc, tutar: g.tutar, tarih: g.tarih || '' });
         });
     });
     const totalLedgerExpense = allLedgerExpenses.reduce((s, g) => s + g.tutar, 0);

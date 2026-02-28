@@ -217,10 +217,11 @@ const OperatingLedger = () => {
       let rows = '';
       for (let i = 0; i < maxRows; i++) {
         const r = giderRows[i];
+        const displayStr = r ? (r.displayAciklama || r.aciklama) : '';
         rows += `<tr>
           <td class="sira">${i + 1}</td>
           <td class="tarih">${r ? r.tarih : ''}</td>
-          <td class="aciklama">${r ? r.aciklama : ''}</td>
+          <td class="aciklama">${displayStr}</td>
           <td class="tutar">${r ? fmtCur(r.tutar) : ''}</td>
         </tr>`;
       }
@@ -236,16 +237,24 @@ const OperatingLedger = () => {
         let daireNo = '';
         let adiSoyadi = '';
         if (r) {
-          const match = String(r.aciklama).match(/\(D?:?(\d+)\)/);
+          const displayStr = r.displayAciklama || r.aciklama;
+          const match = String(displayStr).match(/\(D?:?(\d+)\)/);
           if (match) daireNo = match[1];
-          else if (String(r.aciklama).match(/Daire\s*(\d+)/i)) {
-            const m2 = String(r.aciklama).match(/Daire\s*(\d+)/i);
+          else if (String(displayStr).match(/Daire\s*(\d+)/i)) {
+            const m2 = String(displayStr).match(/Daire\s*(\d+)/i);
             if (m2) daireNo = m2[1];
           }
-          adiSoyadi = r.aciklama;
+          // Özel tag'leri daha okunabilir yap
+          if (String(displayStr).startsWith('aidat_dues_')) {
+            adiSoyadi = `Daire ${daireNo || String(displayStr).replace('aidat_dues_', '')} Aidatı`;
+          } else if (String(displayStr).startsWith('devir_from_')) {
+            adiSoyadi = `${String(displayStr).replace('devir_from_', '')} ayından devir`;
+          } else {
+            adiSoyadi = displayStr;
+          }
         }
         rows += `<tr>
-          <td class="sira">${i + 1}</td>
+          <td class="sira">${r && daireNo ? daireNo : i + 1}</td>
           <td class="tarih">${r ? r.tarih : ''}</td>
           <td class="aciklama">${adiSoyadi}</td>
           <td class="tutar">${r ? fmtCur(r.tutar) : ''}</td>

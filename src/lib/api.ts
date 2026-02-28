@@ -56,7 +56,7 @@ export const fetchApartments = async (buildingId?: string): Promise<Apartment[]>
     }));
 };
 
-export const createApartment = async (apartment: Omit<Apartment, 'daireNo'> & { daireNo: number }, buildingId?: string): Promise<void> => {
+export const createApartment = async (apartment: Omit<Apartment, 'daireNo'> & { daireNo: number }, buildingId?: string): Promise<number | null> => {
     const insertData: any = {
         apartment_number: apartment.daireNo,
         resident_name: apartment.sakinAdi,
@@ -66,11 +66,14 @@ export const createApartment = async (apartment: Omit<Apartment, 'daireNo'> & { 
     if (apartment.accessCode) insertData.access_code = apartment.accessCode;
     if (buildingId) insertData.building_id = buildingId;
 
-    const { error } = await supabase
+    const { data, error } = await supabase
         .from('apartments')
-        .insert(insertData);
+        .insert(insertData)
+        .select('id')
+        .single();
 
     if (error) throw error;
+    return data?.id || null;
 };
 
 export const updateApartment = async (apartmentNumber: number, updates: Partial<Apartment>): Promise<void> => {

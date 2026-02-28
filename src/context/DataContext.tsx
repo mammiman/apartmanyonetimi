@@ -16,7 +16,7 @@ import {
     MONTHS
 } from "@/data/initialData";
 import { toast } from "sonner";
-import { addLog as addLogToDb } from "@/lib/api";
+import { addLog as addLogToDb, createApartment as createApartmentInDb } from "@/lib/api";
 import { generateAndSaveAccessCode } from "@/lib/supabase";
 
 // Define App Data Structure for yearly storage
@@ -414,7 +414,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setApartments(prev => prev.map(apt => apt.daireNo === daireNo ? { ...apt, ...data } : apt));
     };
 
-    const addApartment = (apt: Apartment) => {
+    const addApartment = async (apt: Apartment) => {
         setApartments(prev => [...prev, apt]);
         setDues(prev => [...prev, {
             daireNo: apt.daireNo,
@@ -429,10 +429,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             odenecekToplamBorc: 0
         }]);
 
-        // Otomatik erişim kodu üret ve DB'ye kaydet
+        // Tek RPC ile: daire oluştur + erişim kodu üret + users'a resident ekle
         generateAndSaveAccessCode(apt.daireNo, apt.sakinAdi)
             .then(code => {
-                // Apartment state'ini accessCode ile güncelle
                 setApartments(prev => prev.map(a =>
                     a.daireNo === apt.daireNo ? { ...a, accessCode: code } : a
                 ));

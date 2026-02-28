@@ -21,20 +21,25 @@ export const signIn = async (email: string, password: string) => {
 };
 
 export const signInWithAccessCode = async (accessCode: string) => {
-    // 1) Supabase apartments tablosunda kontrol et
+    const codeUpper = accessCode.toUpperCase();
+
+    // 1) Supabase RPC ile erişim kodunu doğrula (RLS'yi bypass eder)
     try {
         const { data: apt, error } = await supabase
-            .from('apartments')
-            .select('id, apartment_number, resident_name')
-            .eq('access_code', accessCode.toUpperCase())
-            .maybeSingle();
+            .rpc('verify_access_code', { p_access_code: codeUpper });
 
         if (!error && apt) {
+            // building_id'yi localStorage'a kaydet (sakin de doğru binaya bağlansın)
+            if (apt.building_id) {
+                localStorage.setItem('selectedBuildingId', apt.building_id);
+            }
+
             const residentSession = {
                 apartmentId: apt.apartment_number,
                 residentName: apt.resident_name,
-                accessCode: accessCode.toUpperCase(),
+                accessCode: codeUpper,
                 role: 'resident',
+                buildingId: apt.building_id || null,
                 loginTime: new Date().toISOString()
             };
             localStorage.setItem('residentSession', JSON.stringify(residentSession));
@@ -48,20 +53,21 @@ export const signInWithAccessCode = async (accessCode: string) => {
             };
         }
     } catch (dbErr) {
-        console.warn('DB access code check failed, falling back to localStorage', dbErr);
+        console.warn('DB access code RPC failed, falling back to localStorage', dbErr);
     }
 
     // 2) Fallback: localStorage'da kontrol et (geriye dönük uyumluluk)
     const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
     const apartmentId = Object.keys(accessCodes).find(key =>
         accessCodes[key].code === accessCode ||
-        (accessCodes[key].code && accessCodes[key].code.toUpperCase() === accessCode.toUpperCase())
+        (accessCodes[key].code && accessCodes[key].code.toUpperCase() === codeUpper)
     );
 
     if (!apartmentId) {
         if (accessCodes[accessCode]) {
             const residentSession = {
                 apartmentId: accessCodes[accessCode].apartmentId,
+                residentName: accessCodes[accessCode].residentName || '',
                 accessCode,
                 role: 'resident',
                 loginTime: new Date().toISOString()
@@ -77,6 +83,7 @@ export const signInWithAccessCode = async (accessCode: string) => {
 
     const residentSession = {
         apartmentId: parseInt(apartmentId),
+        residentName: accessCodes[apartmentId]?.residentName || '',
         accessCode,
         role: 'resident',
         loginTime: new Date().toISOString()
@@ -172,24 +179,25 @@ export const generateAccessCode = async (apartmentId: number): Promise<string> =
     return code;
 };
 
-// Erişim kodu oluştur ve Supabase apartments tablosuna kaydet
-export const generateAndSaveAccessCode = async (apartmentNumber: number, residentName: string): Promise<string> => {
-    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // I, O, 0, 1 hariç
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-        code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+// Erişim kodu oluştur ve Supabase'de hem apartments hem users tablosuna kaydet
+export const generateAndSaveAccessCode = async (apartmentNumber: number, residentName: string, _knownApartmentDbId?: number): Promise<string> => {
+    const buildingId = localStorage.getItem('selectedBuildingId') || null;
 
-    // Supabase apartments tablosunu güncelle
+    // Tek RPC çağrısı ile her şeyi yap: kod üret + apartments güncelle + users'a ekle
     try {
-        const { error } = await supabase
-            .from('apartments')
-            .update({ access_code: code })
-            .eq('apartment_number', apartmentNumber);
+        const { data, error } = await supabase.rpc('generate_access_code_and_user', {
+            p_apartment_number: apartmentNumber,
+            p_resident_name: residentName,
+            p_building_id: buildingId
+        });
 
         if (error) {
-            console.error('DB access_code update failed:', error);
-            // Fallback: localStorage'a kaydet
+            console.error('generate_access_code_and_user RPC error:', error);
+        } else if (data) {
+            const code = data as string;
+            console.log(`✅ Access code generated & resident user created for apartment ${apartmentNumber}: ${code}`);
+
+            // localStorage'a da yaz (geriye dönük uyumluluk)
             const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
             accessCodes[apartmentNumber] = {
                 code: code,
@@ -197,20 +205,21 @@ export const generateAndSaveAccessCode = async (apartmentNumber: number, residen
                 residentName
             };
             localStorage.setItem('accessCodes', JSON.stringify(accessCodes));
+
+            return code;
         }
     } catch (err) {
-        console.error('DB access_code save failed:', err);
-        // Fallback: localStorage'a kaydet
-        const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
-        accessCodes[apartmentNumber] = {
-            code: code,
-            createdAt: new Date().toISOString(),
-            residentName
-        };
-        localStorage.setItem('accessCodes', JSON.stringify(accessCodes));
+        console.error('generate_access_code_and_user failed:', err);
     }
 
-    // localStorage'a da yaz (geriye dönük uyumluluk)
+    // Fallback: RPC başarısız olursa client-side kod üret (sadece localStorage)
+    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    console.warn(`⚠️ Fallback: Access code generated client-side for apartment ${apartmentNumber}: ${code}`);
+
     const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
     accessCodes[apartmentNumber] = {
         code: code,
@@ -221,6 +230,7 @@ export const generateAndSaveAccessCode = async (apartmentNumber: number, residen
 
     return code;
 };
+
 
 export const revokeAccessCode = async (accessCode: string) => {
     // Find user with this access code

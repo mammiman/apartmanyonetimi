@@ -454,7 +454,7 @@ const DuesSchedule = () => {
                   {!hiddenColumns.includes('toplamOdenen') && <TableHead className="text-right font-bold bg-emerald-700 text-emerald-100 text-xs tracking-wider whitespace-nowrap">TOPLAM<br />ÖDENEN</TableHead>}
                   {!hiddenColumns.includes('borc') && <TableHead className="text-right font-bold bg-orange-700 text-orange-100 text-xs tracking-wider">BORÇ</TableHead>}
                   {!hiddenColumns.includes('gecikmeCezasi') && <TableHead className="text-right font-bold bg-red-700 text-red-100 text-xs tracking-wider whitespace-nowrap">%5 GECİKME<br />CEZASI</TableHead>}
-                  {!hiddenColumns.includes('odenecekToplam') && <TableHead className="text-right font-bold bg-slate-900 text-white text-xs tracking-wider sticky right-0 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.3)] whitespace-nowrap">ÖDENECEKler<br />TOPLAM</TableHead>}
+                  {!hiddenColumns.includes('odenecekToplam') && <TableHead className="text-right font-bold bg-slate-900 text-white text-xs tracking-wider sticky right-0 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.3)] whitespace-nowrap">ÖDENECEKLER<br />TOPLAM</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>

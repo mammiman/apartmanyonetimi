@@ -83,9 +83,10 @@ const Apartments = () => {
   };
 
   const handleAdd = () => {
-    addApartment({ ...newApt, daireNo: apartments.length + 1 });
+    const daireNo = newApt.daireNo || apartments.length + 1;
+    addApartment({ ...newApt, daireNo });
     setIsAddOpen(false);
-    setNewApt({ daireNo: 0, sakinAdi: "", mulkSahibi: "", asansorTabi: true });
+    setNewApt({ daireNo: 0, sakinAdi: "", mulkSahibi: "", asansorTabi: true, blok: "A" });
   };
 
   const handleDelete = () => {
@@ -139,7 +140,8 @@ const Apartments = () => {
                   <DialogTitle>Yeni Daire Ekle</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div><Label>Daire No</Label><Input type="number" value={newApt.daireNo || ""} onChange={e => setNewApt({ ...newApt, daireNo: parseInt(e.target.value) || 0 })} placeholder={String(apartments.length + 1)} /></div>
                     <div><Label>Blok</Label><Input value={newApt.blok || ""} onChange={e => setNewApt({ ...newApt, blok: e.target.value })} placeholder="A" /></div>
                     <div><Label>Sakin Adı</Label><Input value={newApt.sakinAdi} onChange={e => setNewApt({ ...newApt, sakinAdi: e.target.value })} /></div>
                   </div>
@@ -270,6 +272,15 @@ const Apartments = () => {
             </DialogHeader>
             {editingApt && (
               <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">Daire No</Label>
+                  <Input
+                    type="number"
+                    value={editingApt.daireNo}
+                    onChange={(e) => setEditingApt({ ...editingApt, daireNo: parseInt(e.target.value) || 0 })}
+                    className="col-span-3"
+                  />
+                </div>
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label className="text-right">Blok</Label>
                   <Input

@@ -24,8 +24,33 @@ const ResidentDashboard = () => {
     const residentSession = JSON.parse(residentSessionStr || '{}');
     const apartmentId = residentSession.apartmentId;
 
-    const myApartment = apartments.find(apt => apt.daireNo === apartmentId);
-    const myDues = dues.find(d => d.daireNo === apartmentId);
+    let myApartment = apartments.find(apt => apt.daireNo === apartmentId);
+    let myDues = dues.find(d => d.daireNo === apartmentId);
+
+    // Fallback: localStorage'da daire verisi yoksa (farklı cihazdan giriş),
+    // residentSession'daki bilgileri kullan
+    if (!myApartment && apartmentId && residentSession.residentName) {
+        myApartment = {
+            daireNo: apartmentId,
+            sakinAdi: residentSession.residentName,
+            mulkSahibi: '',
+            asansorTabi: true,
+        };
+    }
+    if (!myDues && apartmentId) {
+        myDues = {
+            daireNo: apartmentId,
+            sakinAdi: residentSession.residentName || '',
+            devredenBorc2024: 0,
+            odemeler: {},
+            extraFees: {},
+            asansorOdemesi: 0,
+            toplamOdenen: 0,
+            borc: 0,
+            gecikmeCezasi: 0,
+            odenecekToplamBorc: 0
+        };
+    }
 
     const currentDate = new Date();
     const currentMonthIndex = currentDate.getMonth();

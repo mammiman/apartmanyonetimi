@@ -301,3 +301,133 @@ CREATE TRIGGER update_apartments_updated_at
   BEFORE UPDATE ON apartments
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
+
+-- FK constraint'i kaldır (sakinler auth.users kullanmıyor)
+ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_id_fkey;
+
+-- building_id sütunu yoksa users tablosuna ekle
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS building_id UUID;
+
+-- RPC: Sakin kullanıcısı oluştur (users tablosuna resident olarak kaydet)
+CREATE OR REPLACE FUNCTION public.create_resident_user(
+  p_apartment_id INTEGER,
+  p_access_code TEXT,
+  p_building_id UUID DEFAULT NULL
+)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id UUID;
+  v_building_id UUID;
+BEGIN
+  -- building_id verilmediyse apartments tablosundan otomatik al
+  v_building_id := p_building_id;
+  IF v_building_id IS NULL THEN
+    SELECT building_id INTO v_building_id FROM apartments WHERE id = p_apartment_id;
+  END IF;
+
+  -- Aynı apartment_id ile kayıt varsa güncelle
+  SELECT id INTO v_user_id FROM users WHERE apartment_id = p_apartment_id LIMIT 1;
+
+  IF v_user_id IS NOT NULL THEN
+    UPDATE users SET access_code = p_access_code, building_id = v_building_id
+    WHERE id = v_user_id;
+    RETURN v_user_id;
+  END IF;
+
+  -- Yeni UUID üret
+  v_user_id := gen_random_uuid();
+
+  INSERT INTO users (id, role, apartment_id, access_code, building_id)
+  VALUES (v_user_id, 'resident', p_apartment_id, p_access_code, v_building_id);
+
+  RETURN v_user_id;
+END;
+$$;
+
+-- RPC: Erişim kodu doğrulama (RLS'yi bypass eder, anonim kullanıcılar için)
+CREATE OR REPLACE FUNCTION public.verify_access_code(p_access_code TEXT)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_result JSON;
+BEGIN
+  SELECT json_build_object(
+    'id', a.id,
+    'apartment_number', a.apartment_number,
+    'resident_name', a.resident_name,
+    'building_id', a.building_id
+  ) INTO v_result
+  FROM apartments a
+  WHERE a.access_code = UPPER(p_access_code)
+  LIMIT 1;
+
+  IF v_result IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN v_result;
+END;
+$$;
+
+-- RPC: Tek seferde erişim kodu üret + apartments'a kaydet + users'a resident ekle
+CREATE OR REPLACE FUNCTION public.generate_access_code_and_user(
+  p_apartment_number INTEGER,
+  p_resident_name TEXT,
+  p_building_id UUID DEFAULT NULL
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_chars TEXT := '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  v_code TEXT := '';
+  v_i INTEGER;
+  v_apt_id INTEGER;
+  v_building UUID;
+  v_user_id UUID;
+BEGIN
+  -- 1) 6 karakterli erişim kodu üret
+  FOR v_i IN 1..6 LOOP
+    v_code := v_code || substr(v_chars, floor(random() * length(v_chars) + 1)::int, 1);
+  END LOOP;
+
+  -- 2) Daire yoksa oluştur, varsa id'sini al
+  SELECT id, building_id INTO v_apt_id, v_building
+  FROM apartments WHERE apartment_number = p_apartment_number LIMIT 1;
+
+  IF v_apt_id IS NULL THEN
+    INSERT INTO apartments (apartment_number, resident_name, access_code, building_id)
+    VALUES (p_apartment_number, p_resident_name, v_code, p_building_id)
+    RETURNING id INTO v_apt_id;
+    v_building := p_building_id;
+  ELSE
+    UPDATE apartments SET access_code = v_code WHERE id = v_apt_id;
+    IF p_building_id IS NOT NULL THEN
+      v_building := p_building_id;
+    END IF;
+  END IF;
+
+  -- 3) users tablosuna resident olarak ekle/güncelle
+  SELECT id INTO v_user_id FROM users WHERE apartment_id = v_apt_id LIMIT 1;
+
+  IF v_user_id IS NOT NULL THEN
+    UPDATE users SET access_code = v_code, building_id = v_building
+    WHERE id = v_user_id;
+  ELSE
+    v_user_id := gen_random_uuid();
+    INSERT INTO users (id, role, apartment_id, access_code, building_id)
+    VALUES (v_user_id, 'resident', v_apt_id, v_code, v_building);
+  END IF;
+
+  RETURN v_code;
+END;
+$$;

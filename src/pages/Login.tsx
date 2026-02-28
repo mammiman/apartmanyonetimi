@@ -75,7 +75,9 @@ const Login = () => {
         try {
             await signInWithAccessCode(accessCode);
             toast.success("Giriş başarılı!");
-            navigate("/resident");
+            // Tam sayfa yenilemesi gerekli çünkü App bileşeni isResident'ı
+            // sadece mount sırasında kontrol ediyor
+            window.location.href = "/resident";
         } catch (error: any) {
             toast.error("Geçersiz erişim kodu");
         } finally {

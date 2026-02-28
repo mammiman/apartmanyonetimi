@@ -16,7 +16,7 @@ import {
     MONTHS
 } from "@/data/initialData";
 import { toast } from "sonner";
-import { addLog as addLogToDb, createApartment as createApartmentInDb } from "@/lib/api";
+import * as api from "@/lib/api";
 import { generateAndSaveAccessCode, supabase } from "@/lib/supabase";
 
 // Define App Data Structure for yearly storage
@@ -227,6 +227,51 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     useEffect(() => { localStorage.setItem(bKey("app_annualElevatorFee"), annualElevatorFee.toString()); }, [annualElevatorFee]);
     useEffect(() => { localStorage.setItem(bKey("app_available_years"), JSON.stringify(availableYears)); }, [availableYears]);
 
+    // Fetch Remote Data
+    useEffect(() => {
+        const loadRemoteData = async () => {
+            if (!buildingId) return;
+            try {
+                const [remoteApts, remoteDues, remoteCols, remoteStaff, remoteLogs] = await Promise.all([
+                    api.fetchApartments(buildingId),
+                    api.fetchDues(year),
+                    api.fetchDuesColumns(buildingId),
+                    api.fetchStaffRecords(buildingId),
+                    api.fetchLogs(buildingId)
+                ]);
+
+                if (remoteApts && remoteApts.length > 0) setApartments(remoteApts);
+                if (remoteDues && remoteDues.length > 0) setDues(remoteDues);
+                if (remoteCols && remoteCols.length > 0) setDuesColumns(remoteCols);
+                if (remoteStaff && remoteStaff.length > 0) setStaffRecords(remoteStaff);
+
+                let hasRemoteLedger = false;
+                const newLedger = { ...initialLedgerData };
+                for (const month of MONTHS) {
+                    const entries = await api.fetchLedgerEntries(month, buildingId).catch(() => null);
+                    if (entries && (entries.gelirler.length > 0 || entries.giderler.length > 0)) {
+                        newLedger[month] = entries;
+                        hasRemoteLedger = true;
+                    }
+                }
+                if (hasRemoteLedger) setLedger(newLedger);
+
+                if (remoteLogs && remoteLogs.length > 0) {
+                    setLogs(remoteLogs.map(l => ({
+                        id: l.id,
+                        date: l.created_at,
+                        action: l.action,
+                        details: l.details,
+                        user: l.user
+                    })));
+                }
+            } catch (err) {
+                console.error("Data fetch error", err);
+            }
+        };
+        loadRemoteData();
+    }, [buildingId, year]);
+
     // Ledger değişince gelir/gider/fark güncelle; kasa ve banka'yı koru
     useEffect(() => {
         const newSummary = monthlySummary.map(m => {
@@ -359,6 +404,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const updateDuesPayment = (daireNo: number, month: string, amount: number) => {
+        api.updateDuesPayment(daireNo, month, amount, year).catch(console.error);
         const apt = apartments.find(a => a.daireNo === daireNo);
         addLog("AIDAT_ODEME", `${apt?.sakinAdi || daireNo} - ${month}: ${amount} TL`);
         setDues(prev => prev.map(d => {
@@ -378,6 +424,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const updateExtraFee = (daireNo: number, column: string, amount: number) => {
+        api.updateExtraFee(daireNo, column, amount, year).catch(console.error);
         addLog("EK_UCRET_ODEME", `Daire ${daireNo} - ${column}: ${amount} TL`);
         setDues(prev => prev.map(d => {
             if (d.daireNo === daireNo) {
@@ -395,6 +442,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const updateElevatorPayment = (daireNo: number, amount: number) => {
+        api.updateElevatorPayment(daireNo, amount, year).catch(console.error);
         addLog("ASANSOR_ODEME", `Daire ${daireNo}: ${amount} TL`);
         setDues(prev => prev.map(d => {
             if (d.daireNo === daireNo) {
@@ -411,10 +459,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const updateApartment = (daireNo: number, data: Partial<Apartment>) => {
+        api.updateApartment(daireNo, data).catch(console.error);
         setApartments(prev => prev.map(apt => apt.daireNo === daireNo ? { ...apt, ...data } : apt));
     };
 
     const addApartment = async (apt: Apartment) => {
+        api.createApartment({ ...apt }, buildingId).catch(console.error);
         setApartments(prev => [...prev, apt]);
         setDues(prev => [...prev, {
             daireNo: apt.daireNo,
@@ -470,6 +520,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const deleteApartment = (daireNo: number) => {
         if (confirm(`Daire ${daireNo} silinecek. Emin misiniz?`)) {
+            api.deleteApartment(daireNo).catch(console.error);
             const apt = apartments.find(a => a.daireNo === daireNo);
             setApartments(prev => prev.filter(a => a.daireNo !== daireNo));
             setDues(prev => prev.filter(d => d.daireNo !== daireNo));
@@ -485,6 +536,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const updateStaffRecord = (month: string, data: Partial<StaffRecord>) => {
+        api.updateStaffRecord(month, data, buildingId).catch(console.error);
         setStaffRecords(prev => {
             const updated = prev.map(rec => rec.ay === month ? { ...rec, ...data } : rec);
 
@@ -522,6 +574,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const addLedgerEntry = (month: string, type: 'gelir' | 'gider', entry: Omit<LedgerRow, 'id'>) => {
+        api.createLedgerEntry(month, type, entry, buildingId).catch(console.error);
         addLog("ISLETME_DEFTERI_EKLE", `${month} - ${type}: ${entry.aciklama} (${entry.tutar} TL)`);
         setLedger(prev => {
             const monthData = prev[month] || { giderler: [], gelirler: [] };
@@ -540,6 +593,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const deleteLedgerEntry = (month: string, type: 'gelir' | 'gider', id: number) => {
+        api.deleteLedgerEntry(id).catch(console.error);
         addLog("ISLETME_DEFTERI_SIL", `${month} - ${type} ID: ${id}`);
 
         setLedger(prev => {
@@ -576,6 +630,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const addDuesColumn = (name: string) => {
         if (!duesColumns.includes(name)) {
+            api.createDuesColumn(name, buildingId).catch(console.error);
             setDuesColumns(prev => [...prev, name]);
             toast.success(`${name} sütunu eklendi.`);
         }
@@ -583,6 +638,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const removeDuesColumn = (name: string) => {
         if (confirm(`${name} sütunu silinecek. Emin misiniz?`)) {
+            api.deleteDuesColumn(name).catch(console.error);
             setDuesColumns(prev => prev.filter(c => c !== name));
             toast.success(`${name} sütunu silindi.`);
         }
@@ -694,7 +750,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLogs(prev => [newLog, ...prev]);
 
         // Push to DB (fire and forget)
-        addLogToDb(action, details, userName).catch(err => {
+        api.addLog(action, details, userName, buildingId).catch(err => {
             // Silently fail or log to console, local state is updated anyway
             console.error("Failed to push log to DB", err);
         });

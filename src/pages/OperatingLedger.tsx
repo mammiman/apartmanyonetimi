@@ -185,26 +185,77 @@ const OperatingLedger = () => {
     setKimeValue('');
   };
 
-  // İşletme defteri yazdırma - Gelir ve Gider ayrı sayfalarda
+  // İşletme defteri yazdırma - Gelir ve Gider yan yana (tek sayfa)
   const handlePrintLedger = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    const fmtCur = (v: number) => v.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) + ' ₺';
-
-    const buildTableRows = (rows: any[], type: 'gelir' | 'gider') =>
-      rows.map((r, i) => `
-        <tr class="${i % 2 === 0 ? 'even' : ''}">
-          <td class="center">${i + 1}</td>
-          <td>${r.tarih}</td>
-          <td>${r.aciklama}</td>
-          <td>${r.kategori}</td>
-          <td class="right amount ${type}">${fmtCur(r.tutar)}</td>
-        </tr>
-      `).join('');
+    const fmtCur = (v: number) => v.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     const gelirRows = data.gelirler;
     const giderRows = data.giderler;
+
+    // Önceki ay verilerini al (nakli yekün = önceki ayın devri)
+    const currentIdx = MONTHS_TR.indexOf(selectedMonth);
+    let nakliYekunGider = 0;
+    let nakliYekunGelir = 0;
+    if (currentIdx > 0) {
+      const prevMonth = MONTHS_TR[currentIdx - 1];
+      const prevData = ledger[prevMonth] || { giderler: [], gelirler: [] };
+      nakliYekunGider = prevData.giderler.reduce((s: number, r: any) => s + r.tutar, 0);
+      nakliYekunGelir = prevData.gelirler.reduce((s: number, r: any) => s + r.tutar, 0);
+    }
+
+    // Sonraki ay adı
+    const nextMonthName = currentIdx < 11 ? MONTHS_TR[currentIdx + 1] : 'YENİ YIL';
+
+    // Satır sayısını eşitle (en az 24 satır)
+    const maxRows = Math.max(giderRows.length, gelirRows.length, 13);
+
+    // Gider satırlarını oluştur
+    const buildGiderRows = () => {
+      let rows = '';
+      for (let i = 0; i < maxRows; i++) {
+        const r = giderRows[i];
+        rows += `<tr>
+          <td class="sira">${i + 1}</td>
+          <td class="tarih">${r ? r.tarih : ''}</td>
+          <td class="aciklama">${r ? r.aciklama : ''}</td>
+          <td class="tutar">${r ? fmtCur(r.tutar) : ''}</td>
+        </tr>`;
+      }
+      return rows;
+    };
+
+    // Gelir satırlarını oluştur
+    const buildGelirRows = () => {
+      let rows = '';
+      for (let i = 0; i < maxRows; i++) {
+        const r = gelirRows[i];
+        // Daire no çıkar (açıklamadan)
+        let daireNo = '';
+        let adiSoyadi = '';
+        if (r) {
+          const match = String(r.aciklama).match(/\(D?:?(\d+)\)/);
+          if (match) daireNo = match[1];
+          else if (String(r.aciklama).match(/Daire\s*(\d+)/i)) {
+            const m2 = String(r.aciklama).match(/Daire\s*(\d+)/i);
+            if (m2) daireNo = m2[1];
+          }
+          adiSoyadi = r.aciklama;
+        }
+        rows += `<tr>
+          <td class="sira">${i + 1}</td>
+          <td class="tarih">${r ? r.tarih : ''}</td>
+          <td class="aciklama">${adiSoyadi}</td>
+          <td class="tutar">${r ? fmtCur(r.tutar) : ''}</td>
+        </tr>`;
+      }
+      return rows;
+    };
+
+    const genelGelirGiderToplami = totalGelir - totalGider;
+    const devirSonrakiAy = genelGelirGiderToplami;
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -213,109 +264,118 @@ const OperatingLedger = () => {
         <meta charset="utf-8">
         <title>${apartmentName || 'Apartman'} - İşletme Defteri - ${selectedMonth} ${year}</title>
         <style>
-          @page { size: A4 portrait; margin: 1.5cm 1.5cm 2cm 1.5cm; }
+          @page { size: A4 portrait; margin: 1.5cm; }
           * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #000; }
 
-          .page { page-break-after: always; padding-bottom: 1cm; }
+          .page { page-break-after: always; }
           .page:last-child { page-break-after: avoid; }
 
-          .header { text-align: center; margin-bottom: 16px; border-bottom: 2px solid #1a1a1a; padding-bottom: 10px; }
-          .apt-name { font-size: 14pt; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
-          .doc-title { font-size: 12pt; font-weight: 700; margin-top: 4px; }
-          .doc-title.gelir { color: #166534; }
-          .doc-title.gider { color: #991b1b; }
-          .meta { font-size: 9pt; color: #555; margin-top: 3px; }
+          .header-title {
+            text-align: center; font-size: 15pt; font-weight: 800;
+            text-transform: uppercase; padding: 10px; border: 2px solid #000;
+            background: #fff; margin-bottom: 0;
+          }
+          .page-subtitle {
+            text-align: center; font-size: 13pt; font-weight: 700;
+            padding: 6px; border: 1px solid #000; border-top: none;
+            margin-bottom: 0;
+          }
+          .page-subtitle.gider { background: #fee2e2; color: #991b1b; }
+          .page-subtitle.gelir { background: #dcfce7; color: #166534; }
 
-          table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-          thead tr { background: #1e293b; color: white; }
-          thead th { padding: 7px 8px; text-align: left; font-weight: 700; font-size: 9pt; letter-spacing: 0.5px; }
-          thead th.right { text-align: right; }
-          thead th.center { text-align: center; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #000; padding: 5px 8px; font-size: 11pt; }
+          th { background: #e8e8e8; font-weight: 700; text-align: center; font-size: 10pt; }
 
-          tbody td { padding: 6px 8px; font-size: 9.5pt; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-          tbody tr.even { background: #f8fafc; }
-          tbody tr:hover { background: #f1f5f9; }
-          td.center { text-align: center; color: #64748b; font-size: 8.5pt; }
-          td.right { text-align: right; }
-          td.amount.gelir { color: #15803d; font-weight: 700; font-family: 'Courier New', monospace; }
-          td.amount.gider { color: #b91c1c; font-weight: 700; font-family: 'Courier New', monospace; }
+          .nakli-yekun td { background: #FFFF00 !important; font-weight: 800; text-align: center; font-size: 12pt; }
+          .summary-row td { background: #FFFF00 !important; font-weight: 800; font-size: 11pt; }
 
-          .footer-row { background: #1e293b !important; color: white !important; font-weight: 800; }
-          .footer-row td { padding: 8px; border: none; color: white; font-size: 10pt; }
-          .footer-row .total-gelir { color: #86efac; text-align: right; font-family: 'Courier New', monospace; font-size: 11pt; }
-          .footer-row .total-gider { color: #fca5a5; text-align: right; font-family: 'Courier New', monospace; font-size: 11pt; }
+          .sira { text-align: center; width: 40px; font-weight: 700; }
+          .tarih { width: 90px; font-size: 10pt; }
+          .tutar { text-align: right; width: 110px; font-family: 'Courier New', monospace; font-weight: 600; font-size: 11pt; }
 
-          .empty-msg { text-align: center; padding: 30px; color: #94a3b8; font-style: italic; }
-          .print-date { text-align: right; font-size: 8pt; color: #94a3b8; margin-top: 8px; }
+          tr:nth-child(even) td { background: #fafafa; }
+          .nakli-yekun td, .summary-row td { background: #FFFF00 !important; }
+
+          .print-date { text-align: right; font-size: 8.5pt; color: #999; margin-top: 8px; }
+
+          @media print {
+            body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          }
         </style>
       </head>
       <body>
 
-        <!-- GELİR SAYFASI -->
+        <!-- SAYFA 1: GİDERLER -->
         <div class="page">
-          <div class="header">
-            <div class="apt-name">${apartmentName || 'APARTMAN YÖNETİMİ'}</div>
-            <div class="doc-title gelir">📥 ${selectedMonth} ${year} — GELİR TABLOSU</div>
-            <div class="meta">Düzenlenme Tarihi: ${new Date().toLocaleDateString('tr-TR')} | Toplam ${gelirRows.length} kayıt</div>
-          </div>
+          <div class="header-title">${apartmentName || 'APARTMAN YÖNETİMİ'} — ${selectedMonth} ${year} İŞLETME DEFTERİ</div>
+          <div class="page-subtitle gider">GİDER TABLOSU</div>
           <table>
             <thead>
               <tr>
-                <th class="center" style="width:36px">#</th>
-                <th style="width:80px">Tarih</th>
-                <th>Açıklama</th>
-                <th style="width:140px">Kategori</th>
-                <th class="right" style="width:110px">Tutar</th>
+                <th class="sira">SIRA<br>NO</th>
+                <th class="tarih">TARİH</th>
+                <th>AÇIKLAMA</th>
+                <th style="width:110px">HARCAMA<br>BEDELİ</th>
               </tr>
             </thead>
             <tbody>
-              ${gelirRows.length === 0
-        ? `<tr><td colspan="5" class="empty-msg">Bu ay için gelir kaydı bulunmamaktadır.</td></tr>`
-        : buildTableRows(gelirRows, 'gelir')
-      }
-            </tbody>
-            ${gelirRows.length > 0 ? `
-            <tfoot>
-              <tr class="footer-row">
-                <td colspan="4">TOPLAM GELİR (${selectedMonth} ${year})</td>
-                <td class="total-gelir">${fmtCur(totalGelir)}</td>
+              <tr class="nakli-yekun">
+                <td colspan="3">NAKLİ YEKÜN</td>
+                <td class="tutar">${nakliYekunGider > 0 ? fmtCur(nakliYekunGider) : ''}</td>
               </tr>
-            </tfoot>` : ''}
+              ${buildGiderRows()}
+            </tbody>
+            <tfoot>
+              <tr class="summary-row">
+                <td colspan="3" style="text-align:right; padding-right:12px;">TOPLAM GİDERLER</td>
+                <td class="tutar">${fmtCur(totalGider + nakliYekunGider)}</td>
+              </tr>
+              <tr class="summary-row">
+                <td colspan="2" style="text-align:right; padding-right:12px;">GENEL GELİR GİDER TOPLAMI</td>
+                <td class="tutar">${fmtCur(totalGider + nakliYekunGider)}</td>
+                <td class="tutar">${fmtCur(totalGelir + nakliYekunGelir)}</td>
+              </tr>
+            </tfoot>
           </table>
           <div class="print-date">Baskı: ${new Date().toLocaleString('tr-TR')}</div>
         </div>
 
-        <!-- GİDER SAYFASI -->
+        <!-- SAYFA 2: GELİRLER -->
         <div class="page">
-          <div class="header">
-            <div class="apt-name">${apartmentName || 'APARTMAN YÖNETİMİ'}</div>
-            <div class="doc-title gider">📤 ${selectedMonth} ${year} — GİDER TABLOSU</div>
-            <div class="meta">Düzenlenme Tarihi: ${new Date().toLocaleDateString('tr-TR')} | Toplam ${giderRows.length} kayıt</div>
-          </div>
+          <div class="header-title">${apartmentName || 'APARTMAN YÖNETİMİ'} — ${selectedMonth} ${year} İŞLETME DEFTERİ</div>
+          <div class="page-subtitle gelir">GELİR TABLOSU</div>
           <table>
             <thead>
               <tr>
-                <th class="center" style="width:36px">#</th>
-                <th style="width:80px">Tarih</th>
-                <th>Açıklama</th>
-                <th style="width:140px">Kategori</th>
-                <th class="right" style="width:110px">Tutar</th>
+                <th class="sira">DAİRE<br>NO</th>
+                <th class="tarih">TARİH</th>
+                <th>ADI SOYADI</th>
+                <th style="width:110px">TUTAR</th>
               </tr>
             </thead>
             <tbody>
-              ${giderRows.length === 0
-        ? `<tr><td colspan="5" class="empty-msg">Bu ay için gider kaydı bulunmamaktadır.</td></tr>`
-        : buildTableRows(giderRows, 'gider')
-      }
-            </tbody>
-            ${giderRows.length > 0 ? `
-            <tfoot>
-              <tr class="footer-row">
-                <td colspan="4">TOPLAM GİDER (${selectedMonth} ${year})</td>
-                <td class="total-gider">${fmtCur(totalGider)}</td>
+              <tr class="nakli-yekun">
+                <td colspan="3">${selectedMonth} AYI NAKLİ YEKÜN</td>
+                <td class="tutar">${nakliYekunGelir > 0 ? fmtCur(nakliYekunGelir) : ''}</td>
               </tr>
-            </tfoot>` : ''}
+              ${buildGelirRows()}
+            </tbody>
+            <tfoot>
+              <tr class="summary-row">
+                <td colspan="3" style="text-align:right; padding-right:12px;">ARA TOPLAM</td>
+                <td class="tutar">${fmtCur(totalGelir)}</td>
+              </tr>
+              <tr class="summary-row">
+                <td colspan="3" style="text-align:right; padding-right:12px;">TOPLAM GELİRLER</td>
+                <td class="tutar">${fmtCur(totalGelir + nakliYekunGelir)}</td>
+              </tr>
+              <tr class="summary-row">
+                <td colspan="3" style="text-align:right; padding-right:12px;">${nextMonthName} AYINA DEVİR</td>
+                <td class="tutar">${fmtCur(devirSonrakiAy)}</td>
+              </tr>
+            </tfoot>
           </table>
           <div class="print-date">Baskı: ${new Date().toLocaleString('tr-TR')}</div>
         </div>
@@ -738,19 +798,15 @@ const OperatingLedger = () => {
                               >
                                 <Printer className="w-3.5 h-3.5" />
                               </Button>
-                              {!isAutoEntry && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                  onClick={() => deleteLedgerEntry(selectedMonth, 'gelir', row.id)}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                              {isAutoEntry && (
-                                <span className="h-7 w-7 flex items-center justify-center text-slate-300 text-xs" title={isDevir ? 'Devir - önceki aydan otomatik' : 'Aidat çizelgesinden yönetin'}>🔒</span>
-                              )}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                onClick={() => deleteLedgerEntry(selectedMonth, 'gelir', row.id)}
+                                title="Sil"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
                             </div>
                           </td>
                         </tr>

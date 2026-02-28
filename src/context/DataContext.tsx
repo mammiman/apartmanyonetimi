@@ -17,7 +17,7 @@ import {
 } from "@/data/initialData";
 import { toast } from "sonner";
 import { addLog as addLogToDb, createApartment as createApartmentInDb } from "@/lib/api";
-import { generateAndSaveAccessCode } from "@/lib/supabase";
+import { generateAndSaveAccessCode, supabase } from "@/lib/supabase";
 
 // Define App Data Structure for yearly storage
 export interface ExpenseItem {
@@ -429,6 +429,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             odenecekToplamBorc: 0
         }]);
 
+        // Log kaydı
+        addLog("DAIRE_EKLE", `Daire ${apt.daireNo} eklendi — Sakin: ${apt.sakinAdi}`);
+
         // Tek RPC ile: daire oluştur + erişim kodu üret + users'a resident ekle
         generateAndSaveAccessCode(apt.daireNo, apt.sakinAdi)
             .then(code => {
@@ -467,8 +470,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const deleteApartment = (daireNo: number) => {
         if (confirm(`Daire ${daireNo} silinecek. Emin misiniz?`)) {
+            const apt = apartments.find(a => a.daireNo === daireNo);
             setApartments(prev => prev.filter(a => a.daireNo !== daireNo));
             setDues(prev => prev.filter(d => d.daireNo !== daireNo));
+            addLog("DAIRE_SIL", `Daire ${daireNo} silindi — Sakin: ${apt?.sakinAdi || 'Bilinmiyor'}`);
             toast.success(`Daire ${daireNo} silindi.`);
         }
     };
@@ -668,18 +673,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toast.success("Gider kalemi silindi.");
     };
 
-    const addLog = (action: string, details: string) => {
+    const addLog = async (action: string, details: string) => {
+        let userName = "Admin";
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user && user.email) {
+                userName = user.email.split('@')[0]; // Use first part of email for brevity
+            }
+        } catch (e) {
+            console.error("Auth user fetch error", e);
+        }
+
         const newLog: LogEntry = {
             id: Date.now(),
             date: new Date().toISOString(),
             action,
             details,
-            user: "Admin"
+            user: userName
         };
         setLogs(prev => [newLog, ...prev]);
 
         // Push to DB (fire and forget)
-        addLogToDb(action, details).catch(err => {
+        addLogToDb(action, details, userName).catch(err => {
             // Silently fail or log to console, local state is updated anyway
             console.error("Failed to push log to DB", err);
         });

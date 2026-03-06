@@ -1,21 +1,39 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ProYönetim Site - Apartman yönetimi</title>
-    <meta name="description" content="ProYönetim Site - Apartman yönetim sistemi" />
-    <meta name="author" content="ProYönetim" />
+<html lang="tr">
 
-    <meta property="og:title" content="ProYönetim Site - Apartman yönetimi" />
-    <meta property="og:description" content="ProYönetim Site - Apartman yönetim sistemi" />
-    <meta property="og:type" content="website" />
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ProYönetim Site - Apartman yönetimi</title>
+  <meta name="description" content="ProYönetim Site - Apartman yönetim sistemi" />
+  <meta name="author" content="ProYönetim" />
 
-    <meta name="twitter:card" content="summary_large_image" />
-  </head>
+  <meta property="og:title" content="ProYönetim Site - Apartman yönetimi" />
+  <meta property="og:description" content="ProYönetim Site - Apartman yönetim sistemi" />
+  <meta property="og:type" content="website" />
 
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <!-- Content Security Policy: fontlara ve harici kaynaklara izin ver -->
+  <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:;
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' data: https://fonts.gstatic.com;
+      img-src 'self' data: blob: https:;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co https://fonts.googleapis.com https://fonts.gstatic.com;
+      frame-src 'none';
+      object-src 'none';
+    " />
+
+  <!-- Google Fonts preconnect (CSP uyumlu) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>

@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Routes, Route } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Dashboard from "./pages/Dashboard";
 import Apartments from "./pages/Apartments";
 import DuesSchedule from "./pages/DuesSchedule";
@@ -17,6 +17,7 @@ import NotFound from "./pages/NotFound";
 import { DataProvider } from "@/context/DataContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { DataLoadingWrapper } from "@/components/DataLoadingWrapper";
+import { supabase } from "@/lib/supabase";
 
 const queryClient = new QueryClient();
 
@@ -27,10 +28,42 @@ const App = () => {
 
   const isResident = !!localStorage.getItem('residentSession');
 
+  // Auth durumunu kontrol et: Supabase session varsa BuildingSetup'ı atla,
+  // ProtectedRoute building_id'yi DB'den alıp localStorage'a set eder.
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setIsAuthenticated(!!session);
+      } catch {
+        setIsAuthenticated(false);
+      } finally {
+        setAuthChecked(true);
+      }
+    };
+    checkAuth();
+  }, []);
+
   const handleBuildingSelected = (id: string) => {
     localStorage.setItem("selectedBuildingId", id);
     setBuildingId(id);
   };
+
+  // Auth kontrolü bitmeden ekran gösterme
+  if (!authChecked && !isResident) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  // Kullanıcı auth olmuşsa (ama selectedBuildingId yoksa) BuildingSetup'ı atla:
+  // ProtectedRoute db'den building_id alıp localStorage'a set edecek
+  const showBuildingSetup = !buildingId && !isResident && !isAuthenticated;
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -40,7 +73,7 @@ const App = () => {
         <DataProvider>
           <DataLoadingWrapper>
             <HashRouter>
-              {!buildingId && !isResident ? (
+              {showBuildingSetup ? (
                 <Routes>
                   <Route path="/login" element={<Login />} />
                   <Route path="*" element={<BuildingSetup onBuildingSelected={handleBuildingSelected} />} />
@@ -67,3 +100,4 @@ const App = () => {
 };
 
 export default App;
+

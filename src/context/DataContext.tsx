@@ -98,9 +98,32 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    // Building-scoped localStorage key helper
-    const buildingId = localStorage.getItem("selectedBuildingId") || "default";
+    // Building-scoped localStorage key helper - reactive state so re-fetch fires on login
+    const [buildingId, setBuildingId] = useState<string>(
+        () => localStorage.getItem("selectedBuildingId") || "default"
+    );
     const bKey = (key: string) => `b_${buildingId}_${key}`;
+
+    // Farklı cihazdan giriş sonrası selectedBuildingId set edildiğinde algıla
+    useEffect(() => {
+        const handleStorage = (e: StorageEvent) => {
+            if (e.key === "selectedBuildingId" && e.newValue && e.newValue !== buildingId) {
+                setBuildingId(e.newValue);
+            }
+        };
+        // Aynı sekme içindeki değişiklikler için polling (localStorage event yalnızca diğer sekmelere gider)
+        const interval = setInterval(() => {
+            const current = localStorage.getItem("selectedBuildingId") || "default";
+            if (current !== buildingId) {
+                setBuildingId(current);
+            }
+        }, 500);
+        window.addEventListener("storage", handleStorage);
+        return () => {
+            window.removeEventListener("storage", handleStorage);
+            clearInterval(interval);
+        };
+    }, [buildingId]);
 
     // Loading state - DB'den veri çekilene kadar true
     const [isLoading, setIsLoading] = useState(true);
@@ -247,6 +270,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setIsLoading(false);
                 return;
             }
+            // buildingId değiştiğinde ref'leri sıfırla (yeni cihazdan giriş senaryosu)
+            initialLoadDone.current = false;
+            dbConnected.current = true;
             try {
                 // 1) Önce DB bağlantısını kontrol et (tek bir istek)
                 const dbOk = await api.waitForDb();

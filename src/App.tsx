@@ -16,6 +16,7 @@ import BuildingSetup from "./pages/BuildingSetup";
 import NotFound from "./pages/NotFound";
 import { DataProvider } from "@/context/DataContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { DataLoadingWrapper } from "@/components/DataLoadingWrapper";
 
 const queryClient = new QueryClient();
 
@@ -37,26 +38,28 @@ const App = () => {
         <Toaster />
         <Sonner />
         <DataProvider>
-          <HashRouter>
-            {!buildingId && !isResident ? (
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="*" element={<BuildingSetup onBuildingSelected={handleBuildingSelected} />} />
-              </Routes>
-            ) : (
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-                <Route path="/resident" element={<ProtectedRoute><ResidentDashboard /></ProtectedRoute>} />
-                <Route path="/daireler" element={<ProtectedRoute requireAdmin><Apartments /></ProtectedRoute>} />
-                <Route path="/aidat" element={<ProtectedRoute requireAdmin><DuesSchedule /></ProtectedRoute>} />
-                <Route path="/isletme-defteri" element={<ProtectedRoute requireAdmin><OperatingLedger /></ProtectedRoute>} />
-                <Route path="/personel" element={<ProtectedRoute requireAdmin><Staff /></ProtectedRoute>} />
-                <Route path="/kullanici-yonetimi" element={<ProtectedRoute requireAdmin><Register /></ProtectedRoute>} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            )}
-          </HashRouter>
+          <DataLoadingWrapper>
+            <HashRouter>
+              {!buildingId && !isResident ? (
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="*" element={<BuildingSetup onBuildingSelected={handleBuildingSelected} />} />
+                </Routes>
+              ) : (
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                  <Route path="/resident" element={<ProtectedRoute><ResidentDashboard /></ProtectedRoute>} />
+                  <Route path="/daireler" element={<ProtectedRoute requireAdmin><Apartments /></ProtectedRoute>} />
+                  <Route path="/aidat" element={<ProtectedRoute requireAdmin><DuesSchedule /></ProtectedRoute>} />
+                  <Route path="/isletme-defteri" element={<ProtectedRoute requireAdmin><OperatingLedger /></ProtectedRoute>} />
+                  <Route path="/personel" element={<ProtectedRoute requireAdmin><Staff /></ProtectedRoute>} />
+                  <Route path="/kullanici-yonetimi" element={<ProtectedRoute requireAdmin><Register /></ProtectedRoute>} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              )}
+            </HashRouter>
+          </DataLoadingWrapper>
         </DataProvider>
       </TooltipProvider>
     </QueryClientProvider>

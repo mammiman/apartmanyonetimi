@@ -110,8 +110,13 @@ export const signUp = async (email: string, password: string) => {
 };
 
 export const signOut = async () => {
-    // Clear resident session from localStorage
+    // Clear resident session and profile cache from localStorage
     localStorage.removeItem('residentSession');
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+        localStorage.removeItem(`profile_${user.id}`);
+    }
 
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
@@ -135,32 +140,65 @@ export const getBuildingId = async (): Promise<string | null> => {
 };
 
 export const getCurrentUser = async () => {
-    const { data: { user }, error } = await supabase.auth.getUser();
+    try {
+        const { data: { user }, error } = await supabase.auth.getUser();
 
-    // If no user or session, return null instead of throwing
-    if (error || !user) {
-        console.log('getCurrentUser - No active session found');
+        // If no user or session, return null instead of throwing
+        if (error || !user) {
+            console.log('getCurrentUser - No active session found or error:', error?.message);
+            return null;
+        }
+
+        // Use RPC to bypass RLS on users table
+        try {
+            const { data: profile, error: profileError } = await supabase.rpc('get_my_profile');
+
+            if (profileError || !profile) {
+                console.warn('User profile not found in database or RPC error, checking local cache');
+
+                // Fallback to local cache if possible
+                const cachedProfile = localStorage.getItem(`profile_${user.id}`);
+                if (cachedProfile) {
+                    console.log('Using cached profile from localStorage');
+                    return { ...user, profile: JSON.parse(cachedProfile) };
+                }
+
+                return {
+                    ...user,
+                    profile: {
+                        id: user.id,
+                        role: 'admin',
+                        apartment_id: null,
+                        access_code: null,
+                        building_id: null
+                    }
+                };
+            }
+
+            // Cache for offline use
+            localStorage.setItem(`profile_${user.id}`, JSON.stringify(profile));
+            return { ...user, profile };
+        } catch (rpcErr) {
+            console.error('getCurrentUser - Profile RPC failed, checking local cache:', rpcErr);
+            const cachedProfile = localStorage.getItem(`profile_${user.id}`);
+            if (cachedProfile) {
+                return { ...user, profile: JSON.parse(cachedProfile) };
+            }
+            return {
+                ...user,
+                profile: {
+                    id: user.id,
+                    role: 'admin',
+                    apartment_id: null,
+                    access_code: null,
+                    building_id: null
+                }
+            };
+        }
+    } catch (authErr) {
+        console.error('getCurrentUser - Auth getUser failed:', authErr);
         return null;
     }
-
-    // Use RPC to bypass RLS on users table
-    const { data: profile, error: profileError } = await supabase.rpc('get_my_profile');
-
-    if (profileError || !profile) {
-        console.warn('User profile not found in database, assuming admin role');
-        return {
-            ...user,
-            profile: {
-                id: user.id,
-                role: 'admin',
-                apartment_id: null,
-                access_code: null,
-                building_id: null
-            }
-        };
-    }
-
-    return { ...user, profile };
 };
 
 export const generateAccessCode = async (apartmentId: number): Promise<string> => {

@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import {
     Apartment,
     MonthlyDues,
@@ -41,8 +41,6 @@ interface AppData {
     ledger: LedgerParams;
     monthlySummary: MonthlySummary[];
     staffRecords: StaffRecord[];
-    // Apartments usually shared/static or per year? If residents change, per year is safer but apartments structure is physical. 
-    // Resident names are in apartments. So per year.
     apartments: Apartment[];
     duesColumns: string[];
 }
@@ -55,39 +53,46 @@ interface DataContextType {
     monthlySummary: MonthlySummary[];
     ledger: LedgerParams;
     duesColumns: string[];
+    duesColumnFees: Record<string, number>;
     availableYears: number[];
-    monthlyDuesAmount: number; // YENİ: Aylık aidat tutarı
-    currentMonthIndex: number; // YENİ: Mevcut ay index'i (0-11)
-    apartmentName: string; // YENİ: Apartman Adı
-    annualElevatorFee: number; // YENİ: Yıllık Asansör Ücreti
-    expenseItems: ExpenseItem[]; // YENİ: Gider Kalemleri
-    logs: LogEntry[]; // YENİ: Loglar
-    staffName: string; // YENİ: Personel Adı
-    staffRole: string; // YENİ: Personel Görevi
+    monthlyDuesAmount: number;
+    currentMonthIndex: number;
+    apartmentName: string;
+    annualElevatorFee: number;
+    expenseItems: ExpenseItem[];
+    logs: LogEntry[];
+    staffName: string;
+    staffRole: string;
+    isLoading: boolean;
 
     // Actions
-    addLog: (action: string, details: string) => void; // YENİ
+    addLog: (action: string, details: string) => void;
     updateApartmentName: (name: string) => void;
-    updateStaffInfo: (name: string, role: string) => void; // YENİ
+    updateStaffInfo: (name: string, role: string) => void;
     updateExpenseItem: (id: number, item: Partial<ExpenseItem>) => void;
     updateDuesPayment: (daireNo: number, month: string, amount: number) => void;
     updateExtraFee: (daireNo: number, column: string, amount: number) => void;
     updateElevatorPayment: (daireNo: number, amount: number) => void;
-    updateAnnualElevatorFee: (amount: number) => void; // YENİ
+    updateAnnualElevatorFee: (amount: number) => void;
     updateApartment: (daireNo: number, data: Partial<Apartment>) => void;
-    addExpenseItem: (item: Omit<ExpenseItem, 'id'>) => void; // YENİ
-    removeExpenseItem: (id: number) => void; // YENİ
+    addExpenseItem: (item: Omit<ExpenseItem, 'id'>) => void;
+    removeExpenseItem: (id: number) => void;
     addApartment: (apt: Apartment) => void;
     deleteApartment: (daireNo: number) => void;
     updateStaffRecord: (month: string, data: Partial<StaffRecord>) => void;
     addLedgerEntry: (month: string, type: 'gelir' | 'gider', entry: Omit<LedgerRow, 'id'>) => void;
     deleteLedgerEntry: (month: string, type: 'gelir' | 'gider', id: number) => void;
-    addDuesColumn: (name: string) => void;
+    addDuesColumn: (name: string, fee?: number) => void;
     removeDuesColumn: (name: string) => void;
+    updateDuesColumnFee: (name: string, fee: number) => void;
     updateMonthlyDuesAmount: (amount: number) => void;
-    updateMonthlySummaryRow: (ay: string, field: string, value: number) => void; // YENİ: İcmal satırı güncelle
+    updateMonthlySummaryRow: (ay: string, field: string, value: number) => void;
+    updateDevir: (daireNo: number, amount: number) => void;
+    importDuesData: (data: { daireNo: number; sakinAdi?: string; devir?: number; odemeler?: Record<string, number>; asansor?: number; extraFees?: Record<string, number> }[]) => void;
     startNewYear: () => void;
     switchYear: (targetYear: number) => void;
+    isDbAvailable: boolean;
+    retryRemoteData: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -97,13 +102,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const buildingId = localStorage.getItem("selectedBuildingId") || "default";
     const bKey = (key: string) => `b_${buildingId}_${key}`;
 
+    // Loading state - DB'den veri çekilene kadar true
+    const [isLoading, setIsLoading] = useState(true);
+    const [isDbAvailable, setIsDbAvailable] = useState(true);
+    const initialLoadDone = useRef(false);
+
     // Current Year State
     const [year, setYear] = useState<number>(() => {
         const saved = localStorage.getItem(bKey("app_year"));
         return saved ? parseInt(saved) : new Date().getFullYear();
     });
 
-    // We keep "Active" state for immediate binding
+    // We keep "Active" state for immediate binding - localStorage is cache only
     const [dues, setDues] = useState<MonthlyDues[]>(() => {
         const saved = localStorage.getItem(bKey("app_dues"));
         return saved ? JSON.parse(saved) : initialDues;
@@ -134,35 +144,40 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return saved ? JSON.parse(saved) : [];
     });
 
-    // YENİ: Aylık aidat tutarı
+    // Sütun ücretleri
+    const [duesColumnFees, setDuesColumnFees] = useState<Record<string, number>>(() => {
+        const saved = localStorage.getItem(bKey("app_duesColumnFees"));
+        return saved ? JSON.parse(saved) : {};
+    });
+
+    // Aylık aidat tutarı
     const [monthlyDuesAmount, setMonthlyDuesAmount] = useState<number>(() => {
         const saved = localStorage.getItem(bKey("app_monthlyDuesAmount"));
         return saved ? parseFloat(saved) : MONTHLY_DUES;
     });
 
-    // YENİ: Mevcut ay index'i (canlı tarih)
+    // Mevcut ay index'i (canlı tarih)
     const currentMonthIndex = (() => {
         const now = new Date();
-        return now.getMonth(); // 0 = Ocak, 1 = Şubat, ..., 11 = Aralık
+        return now.getMonth();
     })();
 
-    // YENİ: Apartman Adı
+    // Apartman Adı
     const [apartmentName, setApartmentName] = useState<string>(() => {
         return localStorage.getItem(bKey("app_apartmentName")) || "Apartman";
     });
 
-    // YENİ: Aylık Asansör Ücreti
+    // Aylık Asansör Ücreti (unused but kept for compat)
     const [monthlyElevatorFee, setMonthlyElevatorFee] = useState<number>(() => {
         const saved = localStorage.getItem(bKey("app_monthlyElevatorFee"));
         return saved ? parseFloat(saved) : 50;
     });
 
-    // YENİ: Gider Kalemleri
+    // Gider Kalemleri
     const [expenseItems, setExpenseItems] = useState<ExpenseItem[]>(() => {
         const saved = localStorage.getItem(bKey("app_expenseItems"));
         if (saved) return JSON.parse(saved);
 
-        // Varsayılan Kalemler
         return [
             { id: 1, description: "YÖNETİM VE HUZUR HAKKI", amount: 3000, quantity: 23, unit: "TL" },
             { id: 2, description: "TEMİZLİK MALZ. VE SU GİDERİ", amount: 2000, quantity: 23, unit: "TL" },
@@ -177,13 +192,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ];
     });
 
-    // YENİ: Loglar
+    // Loglar
     const [logs, setLogs] = useState<LogEntry[]>(() => {
         const saved = localStorage.getItem(bKey("app_logs"));
         return saved ? JSON.parse(saved) : [];
     });
 
-    // YENİ: Personel Bilgileri
+    // Personel Bilgileri
     const [staffName, setStaffName] = useState<string>(() => {
         return localStorage.getItem(bKey("app_staffName")) || "Belirtilmemiş";
     });
@@ -191,28 +206,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return localStorage.getItem(bKey("app_staffRole")) || "Personel";
     });
 
-    // Persistence
-    useEffect(() => { localStorage.setItem(bKey("app_staffName"), staffName); }, [staffName]);
-    useEffect(() => { localStorage.setItem(bKey("app_staffRole"), staffRole); }, [staffRole]);
-
-    // Persistence
-    useEffect(() => { localStorage.setItem(bKey("app_apartmentName"), apartmentName); }, [apartmentName]);
-    useEffect(() => { localStorage.setItem(bKey("app_expenseItems"), JSON.stringify(expenseItems)); }, [expenseItems]);
-    useEffect(() => { localStorage.setItem(bKey("app_logs"), JSON.stringify(logs)); }, [logs]);
-
-    // Store available years to allow switching
+    // Store available years
     const [availableYears, setAvailableYears] = useState<number[]>(() => {
         const saved = localStorage.getItem(bKey("app_available_years"));
         return saved ? JSON.parse(saved) : [new Date().getFullYear()];
     });
 
-    // YENİ: Annual Elevator Fee State
+    // Annual Elevator Fee State
     const [annualElevatorFee, setAnnualElevatorFee] = useState<number>(() => {
         const saved = localStorage.getItem(bKey("app_annualElevatorFee"));
         return saved ? parseFloat(saved) : 600;
     });
 
-    // Save to localStorage
+    // ===== localStorage Persistence (cache) =====
+    useEffect(() => { localStorage.setItem(bKey("app_staffName"), staffName); }, [staffName]);
+    useEffect(() => { localStorage.setItem(bKey("app_staffRole"), staffRole); }, [staffRole]);
+    useEffect(() => { localStorage.setItem(bKey("app_apartmentName"), apartmentName); }, [apartmentName]);
+    useEffect(() => { localStorage.setItem(bKey("app_expenseItems"), JSON.stringify(expenseItems)); }, [expenseItems]);
+    useEffect(() => { localStorage.setItem(bKey("app_logs"), JSON.stringify(logs)); }, [logs]);
     useEffect(() => { localStorage.setItem(bKey("app_year"), year.toString()); }, [year]);
     useEffect(() => { localStorage.setItem(bKey("app_dues"), JSON.stringify(dues)); }, [dues]);
     useEffect(() => { localStorage.setItem(bKey("app_apartments"), JSON.stringify(apartments)); }, [apartments]);
@@ -221,42 +232,97 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     useEffect(() => { localStorage.setItem(bKey("app_ledger"), JSON.stringify(ledger)); }, [ledger]);
     useEffect(() => { localStorage.setItem(bKey("app_duesColumns"), JSON.stringify(duesColumns)); }, [duesColumns]);
     useEffect(() => { localStorage.setItem(bKey("app_monthlyDuesAmount"), monthlyDuesAmount.toString()); }, [monthlyDuesAmount]);
-    useEffect(() => { localStorage.setItem(bKey("app_apartmentName"), apartmentName); }, [apartmentName]);
-    useEffect(() => { localStorage.setItem(bKey("app_expenseItems"), JSON.stringify(expenseItems)); }, [expenseItems]);
-    // Save annual elevator fee
     useEffect(() => { localStorage.setItem(bKey("app_annualElevatorFee"), annualElevatorFee.toString()); }, [annualElevatorFee]);
     useEffect(() => { localStorage.setItem(bKey("app_available_years"), JSON.stringify(availableYears)); }, [availableYears]);
 
-    // Fetch Remote Data
+    // DB bağlantı durumu - false ise hiçbir save yapılmaz
+    const dbConnected = useRef(true);
+    // Tablolar mevcut mu tracking
+    const dbTablesAvailable = useRef<Record<string, boolean>>({ monthly_summary: true, expense_items: true });
+
+    // ===== DB'den Veri Çekme (DB-first approach) =====
     useEffect(() => {
         const loadRemoteData = async () => {
-            if (!buildingId) return;
+            if (!buildingId || buildingId === 'default') {
+                setIsLoading(false);
+                return;
+            }
             try {
-                const [remoteApts, remoteDues, remoteCols, remoteStaff, remoteLogs] = await Promise.all([
-                    api.fetchApartments(buildingId),
-                    api.fetchDues(year),
-                    api.fetchDuesColumns(buildingId),
-                    api.fetchStaffRecords(buildingId),
-                    api.fetchLogs(buildingId)
-                ]);
+                // 1) Önce DB bağlantısını kontrol et (tek bir istek)
+                const dbOk = await api.waitForDb();
+                setIsDbAvailable(dbOk);
+                if (!dbOk) {
+                    dbConnected.current = false;
+                    console.warn('[DB] Supabase erişilemez - sadece localStorage kullanılacak');
+                    setIsLoading(false);
+                    initialLoadDone.current = true;
+                    return;
+                }
 
-                if (remoteApts) setApartments(remoteApts);
-                if (remoteDues) setDues(remoteDues);
-                if (remoteCols) setDuesColumns(remoteCols);
-                if (remoteStaff) setStaffRecords(remoteStaff);
+                // 2) DB bağlantısı var, settings'i çek
+                const remoteSettings = await api.fetchBuildingSettings(buildingId).catch(() => ({} as api.BuildingSettings));
 
-                let hasRemoteLedger = false;
+                // 2) Tüm temel verileri çek (Sequentially for safety - stops flood on first 500)
+                let remoteApts = null;
+                if (api.isDbAvailable()) remoteApts = await api.fetchApartments(buildingId).catch(() => null);
+
+                let remoteDues = null;
+                if (api.isDbAvailable()) remoteDues = await api.fetchDues(year).catch(() => null);
+
+                let remoteCols = null;
+                if (api.isDbAvailable()) remoteCols = await api.fetchDuesColumns(buildingId).catch(() => null);
+
+                let remoteStaff = null;
+                if (api.isDbAvailable()) remoteStaff = await api.fetchStaffRecords(buildingId).catch(() => null);
+
+                let remoteLogs = null;
+                if (api.isDbAvailable()) remoteLogs = await api.fetchLogs(buildingId).catch(() => null);
+
+                // Opsiyonel tablolar - yoksa sessizce atla
+                let remoteSummary: any = null;
+                let remoteExpenseItems: any = null;
+                try {
+                    if (api.isDbAvailable()) remoteSummary = await api.fetchMonthlySummary(buildingId, year);
+                } catch { dbTablesAvailable.current.monthly_summary = false; }
+                try {
+                    if (api.isDbAvailable()) remoteExpenseItems = await api.fetchExpenseItems(buildingId);
+                } catch { dbTablesAvailable.current.expense_items = false; }
+
+                // 3) Apartments - DB'den gelirse DB verisini kullan
+                if (remoteApts && remoteApts.length > 0) {
+                    setApartments(remoteApts);
+                }
+
+                // 4) Dues - DB'den gelirse DB verisini kullan
+                if (remoteDues && remoteDues.length > 0) {
+                    setDues(remoteDues);
+                }
+
+                // 5) Dues Columns
+                if (remoteCols) {
+                    setDuesColumns(remoteCols);
+                }
+
+                // 6) Staff Records
+                if (remoteStaff && remoteStaff.length > 0) {
+                    setStaffRecords(remoteStaff);
+                }
+
+                // 7) Ledger entries - her ay için çek
                 const newLedger = { ...initialLedgerData };
                 for (const month of MONTHS) {
+                    if (!api.isDbAvailable()) {
+                        console.warn(`[DB] Stopping ledger load at ${month} due to DB unavailability.`);
+                        break;
+                    }
                     const entries = await api.fetchLedgerEntries(month, buildingId).catch(() => null);
                     if (entries && (entries.gelirler.length > 0 || entries.giderler.length > 0)) {
                         newLedger[month] = entries;
-                        hasRemoteLedger = true;
                     }
                 }
-                // Always set ledger exactly to DB state (empty or not) to avoid phantom data
                 setLedger(newLedger);
 
+                // 7) Logs
                 if (remoteLogs) {
                     setLogs(remoteLogs.map(l => ({
                         id: l.id,
@@ -266,12 +332,130 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         user: l.user
                     })));
                 }
+
+                // 8) Building Settings - DB'den gelen ayarları uygula
+                if (remoteSettings) {
+                    if (remoteSettings.apartmentName) setApartmentName(remoteSettings.apartmentName);
+                    if (remoteSettings.monthlyDuesAmount !== undefined && !isNaN(remoteSettings.monthlyDuesAmount)) {
+                        setMonthlyDuesAmount(remoteSettings.monthlyDuesAmount);
+                    }
+                    if (remoteSettings.annualElevatorFee !== undefined && !isNaN(remoteSettings.annualElevatorFee)) {
+                        setAnnualElevatorFee(remoteSettings.annualElevatorFee);
+                    }
+                    if (remoteSettings.staffName) setStaffName(remoteSettings.staffName);
+                    if (remoteSettings.staffRole) setStaffRole(remoteSettings.staffRole);
+                    if (remoteSettings.availableYears && remoteSettings.availableYears.length > 0) {
+                        setAvailableYears(remoteSettings.availableYears);
+                    }
+                    if (remoteSettings.currentYear && !isNaN(remoteSettings.currentYear)) {
+                        setYear(remoteSettings.currentYear);
+                    }
+                    if ((remoteSettings as any).duesColumnFees) {
+                        setDuesColumnFees((remoteSettings as any).duesColumnFees);
+                    }
+                }
+
+                // 9) Monthly Summary - DB'den gelirse DB verisini kullan
+                if (remoteSummary && remoteSummary.length > 0) {
+                    setMonthlySummary(prev => {
+                        return prev.map(m => {
+                            const remote = remoteSummary.find(r => r.month_name === m.ay);
+                            if (remote) {
+                                return {
+                                    ay: m.ay,
+                                    gelir: remote.gelir,
+                                    gider: remote.gider,
+                                    asansor: remote.asansor,
+                                    kasa: remote.kasa,
+                                    banka: remote.banka,
+                                    fark: remote.fark,
+                                };
+                            }
+                            return m;
+                        });
+                    });
+                }
+
+                // 10) Expense Items - DB'den gelirse DB verisini kullan
+                if (remoteExpenseItems && remoteExpenseItems.length > 0) {
+                    setExpenseItems(remoteExpenseItems.map((item, idx) => ({
+                        id: item.id,
+                        description: item.description,
+                        amount: item.amount,
+                        quantity: item.quantity,
+                        unit: item.unit,
+                    })));
+                }
+
             } catch (err) {
                 console.error("Data fetch error", err);
+            } finally {
+                setIsLoading(false);
+                initialLoadDone.current = true;
             }
         };
+        setIsLoading(true);
         loadRemoteData();
     }, [buildingId, year]);
+
+    const retryRemoteData = async () => {
+        api.resetDbStatus();
+        window.location.reload();
+    };
+
+    // ===== Settings değiştiğinde DB'ye kaydet =====
+    // Not: İlk yükleme tamamlanmadan veya DB bağlantısı yoksa kaydetmeyi önle
+    const canSaveToDB = () => initialLoadDone.current && buildingId !== 'default' && dbConnected.current;
+
+    useEffect(() => {
+        if (!canSaveToDB()) return;
+        api.saveBuildingSetting(buildingId, 'apartmentName', apartmentName).catch(() => { });
+    }, [apartmentName]);
+
+    useEffect(() => {
+        if (!canSaveToDB()) return;
+        api.saveBuildingSetting(buildingId, 'monthlyDuesAmount', monthlyDuesAmount).catch(() => { });
+    }, [monthlyDuesAmount]);
+
+    useEffect(() => {
+        if (!canSaveToDB()) return;
+        api.saveBuildingSetting(buildingId, 'annualElevatorFee', annualElevatorFee).catch(() => { });
+    }, [annualElevatorFee]);
+
+    useEffect(() => {
+        if (!canSaveToDB()) return;
+        api.saveBuildingSetting(buildingId, 'staffName', staffName).catch(() => { });
+    }, [staffName]);
+
+    useEffect(() => {
+        if (!canSaveToDB()) return;
+        api.saveBuildingSetting(buildingId, 'staffRole', staffRole).catch(() => { });
+    }, [staffRole]);
+
+    useEffect(() => {
+        if (!canSaveToDB()) return;
+        api.saveBuildingSetting(buildingId, 'availableYears', availableYears).catch(() => { });
+    }, [availableYears]);
+
+    useEffect(() => {
+        if (!canSaveToDB()) return;
+        api.saveBuildingSetting(buildingId, 'currentYear', year).catch(() => { });
+    }, [year]);
+
+    // Monthly Summary değiştiğinde DB'ye kaydet (tablo mevcutsa)
+    useEffect(() => {
+        if (!canSaveToDB() || !dbTablesAvailable.current.monthly_summary) return;
+        monthlySummary.forEach(m => {
+            api.saveMonthlySummaryRow(buildingId, year, m.ay, {
+                gelir: m.gelir,
+                gider: m.gider,
+                asansor: m.asansor,
+                kasa: m.kasa,
+                banka: m.banka,
+                fark: m.fark,
+            }).catch(() => { dbTablesAvailable.current.monthly_summary = false; });
+        });
+    }, [monthlySummary]);
 
     // Ledger değişince gelir/gider/fark güncelle; kasa ve banka'yı koru
     useEffect(() => {
@@ -287,7 +471,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 gelir: totalGelir,
                 gider: totalGider,
                 fark: totalGelir - totalGider
-                // kasa ve banka kullanıcı override'ına bırakılır
             };
         });
 
@@ -297,18 +480,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [ledger]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // dues.odemeler değişince ledger'ı sync et (TEK KAYNAK: dues)
-    // Bu, DuesSchedule veya OperatingLedger'dan yapılan tüm değişikliklerin
-    // ledger'a yansımasını garanti eder.
     useEffect(() => {
         setLedger(prevLedger => {
             let updated = { ...prevLedger };
             MONTHS.forEach(month => {
                 const monthData = updated[month] || { giderler: [], gelirler: [] };
-                // Mevcut aidat tag'li kayıtları temizle
                 const nonAidatGelirler = (monthData.gelirler || []).filter(
                     r => !String(r.aciklama).startsWith('aidat_dues_')
                 );
-                // dues'tan yeni aidat kayıtlarını oluştur
                 const aidatGelirler: any[] = [];
                 let maxId = nonAidatGelirler.length > 0 ? Math.max(...nonAidatGelirler.map(r => r.id)) : 0;
                 dues.forEach(due => {
@@ -335,13 +514,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     [month]: { ...monthData, gelirler: [...nonAidatGelirler, ...aidatGelirler] }
                 };
             });
-            // Sadece değiştiyse kaydet
             return JSON.stringify(updated) !== JSON.stringify(prevLedger) ? updated : prevLedger;
         });
     }, [dues]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
-    // Helper to calculate total paid and balance
     // Helper to calculate total paid and balance
     const calculateTotals = (
         daireNo: number,
@@ -361,29 +538,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const totalPaidExtra = Object.values(extra).reduce((a, b) => a + b, 0);
 
         const totalPaid = totalPaidRegular + elevatorPaid + totalPaidExtra;
-        // Bakiye = (Devir + Beklenen Toplam) - Ödenen
         const balance = (devir + expectedDues + expectedElevator) - totalPaid;
 
         return { totalPaid, balance };
     };
 
     // Actions
-    // Yardımcı: Ledger'a aidat gelir kaydı ekle (eski kaydı önce temizle)
     const syncDuesPaymentToLedger = (
         month: string,
         daireNo: number,
         sakinAdi: string,
         amount: number
     ) => {
-        const ledgerTag = `aidat_dues_${daireNo}`; // Eşsiz tag
+        const ledgerTag = `aidat_dues_${daireNo}`;
         setLedger(prev => {
             const monthData = prev[month] || { giderler: [], gelirler: [] };
-            // Önceki aynı daire kaydını temizle
             const filteredGelirler = (monthData.gelirler || []).filter(
                 r => r.aciklama !== ledgerTag
             );
             if (amount <= 0) {
-                // Ödeme silinmişse ledger'dan da kaldır
                 return { ...prev, [month]: { ...monthData, gelirler: filteredGelirler } };
             }
             const maxId = filteredGelirler.length > 0 ? Math.max(...filteredGelirler.map(r => r.id)) : 0;
@@ -391,7 +564,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const newEntry = {
                 id: maxId + 1,
                 tarih: today,
-                aciklama: ledgerTag, // İzleme için gizli tag - gösterimde sakin adı kullanılır
+                aciklama: ledgerTag,
                 kategori: 'Aidat Ödemesi',
                 tutar: amount,
                 tip: 'gelir' as const,
@@ -421,7 +594,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             return d;
         }));
-        // Ledger sync useEffect([dues]) tarafından otomatik yapılır
     };
 
     const updateExtraFee = (daireNo: number, column: string, amount: number) => {
@@ -480,10 +652,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             odenecekToplamBorc: 0
         }]);
 
-        // Log kaydı
         addLog("DAIRE_EKLE", `Daire ${apt.daireNo} eklendi — Sakin: ${apt.sakinAdi}`);
 
-        // Tek RPC ile: daire oluştur + erişim kodu üret + users'a resident ekle
         generateAndSaveAccessCode(apt.daireNo, apt.sakinAdi)
             .then(code => {
                 setApartments(prev => prev.map(a =>
@@ -500,7 +670,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             });
     };
 
-    // YENİ: Aylık aidat tutarını güncelle
     const updateMonthlyDuesAmount = (amount: number) => {
         setMonthlyDuesAmount(amount);
         toast.success(`Aylık aidat tutarı ${amount} TL olarak güncellendi.`);
@@ -541,7 +710,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setStaffRecords(prev => {
             const updated = prev.map(rec => rec.ay === month ? { ...rec, ...data } : rec);
 
-            // Sync with Ledger: if toplamOdenen changed, add/update expense in ledger
             if (data.toplamOdenen !== undefined) {
                 const amount = data.toplamOdenen;
                 const ledgerTag = `staff_payment_${month}`;
@@ -603,13 +771,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             const listKey = type === 'gelir' ? 'gelirler' : 'giderler';
 
-            // Silinecek kayıt aidat tag'li mi? Varsa aidat çizelgesini de güncelle
             if (type === 'gelir') {
                 const deletedEntry = monthData.gelirler.find(r => r.id === id);
                 if (deletedEntry && String(deletedEntry.aciklama).startsWith('aidat_dues_')) {
                     const daireNo = parseInt(String(deletedEntry.aciklama).replace('aidat_dues_', ''), 10);
                     if (!isNaN(daireNo)) {
-                        // Dues state'ini async güncelle (setDues'ı çağır)
                         setTimeout(() => {
                             setDues(prevDues => prevDues.map(d => {
                                 if (d.daireNo === daireNo) {
@@ -629,11 +795,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toast.success("Kayıt silindi.");
     };
 
-    const addDuesColumn = (name: string) => {
+    const addDuesColumn = (name: string, fee?: number) => {
         if (!duesColumns.includes(name)) {
             api.createDuesColumn(name, buildingId).catch(console.error);
             setDuesColumns(prev => [...prev, name]);
-            toast.success(`${name} sütunu eklendi.`);
+            if (fee !== undefined && fee > 0) {
+                setDuesColumnFees(prev => ({ ...prev, [name]: fee }));
+            }
+            toast.success(`${name} sütunu eklendi.${fee ? ` (Ücret: ${fee} TL)` : ''}`);
         }
     };
 
@@ -649,7 +818,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const saveCurrentYearData = () => {
         const data: AppData = { dues, ledger, monthlySummary, staffRecords, apartments, duesColumns };
         localStorage.setItem(`app_data_${year}`, JSON.stringify(data));
-        // Ensure year is in available years
         if (!availableYears.includes(year)) {
             setAvailableYears(prev => [...prev, year].sort());
         }
@@ -662,7 +830,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             const newDues: MonthlyDues[] = dues.map(d => ({
                 ...d,
-                devredenBorc2024: d.odenecekToplamBorc, // Carry over balance
+                devredenBorc2024: d.odenecekToplamBorc,
                 odemeler: {},
                 extraFees: {},
                 asansorOdemesi: 0,
@@ -672,7 +840,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 odenecekToplamBorc: d.odenecekToplamBorc
             }));
 
-            // Reset States for New Year
             setDues(newDues);
             setYear(prev => {
                 const nextYear = prev + 1;
@@ -682,7 +849,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setLedger(initialLedgerData);
             setMonthlySummary(initialMonthlySummary);
             setStaffRecords(initialStaffRecords);
-            // duesColumns kept? Yes usually.
 
             toast.success(`Yeni yıl (${year + 1}) oluşturuldu.`);
         }
@@ -690,10 +856,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
     const switchYear = (targetYear: number) => {
-        // First save current logic state just in case
         saveCurrentYearData();
 
-        // Load target year
         const savedData = localStorage.getItem(`app_data_${targetYear}`);
         if (savedData) {
             const data: AppData = JSON.parse(savedData);
@@ -716,17 +880,36 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const updateExpenseItem = (id: number, item: Partial<ExpenseItem>) => {
-        setExpenseItems(prev => prev.map(ex => ex.id === id ? { ...ex, ...item } : ex));
+        setExpenseItems(prev => {
+            const updated = prev.map(ex => ex.id === id ? { ...ex, ...item } : ex);
+            // DB'ye kaydet
+            if (buildingId !== 'default') {
+                const updatedItem = updated.find(ex => ex.id === id);
+                if (updatedItem) {
+                    api.saveExpenseItem(buildingId, updatedItem, updated.indexOf(updatedItem)).catch(console.error);
+                }
+            }
+            return updated;
+        });
     };
 
     const addExpenseItem = (item: Omit<ExpenseItem, 'id'>) => {
         const newId = Math.max(...expenseItems.map(i => i.id), 0) + 1;
-        setExpenseItems(prev => [...prev, { ...item, id: newId }]);
+        const newItem = { ...item, id: newId };
+        setExpenseItems(prev => [...prev, newItem]);
+        // DB'ye kaydet
+        if (buildingId !== 'default') {
+            api.saveExpenseItem(buildingId, item, newId).catch(console.error);
+        }
         toast.success("Gider kalemi eklendi.");
     };
 
     const removeExpenseItem = (id: number) => {
         setExpenseItems(prev => prev.filter(i => i.id !== id));
+        // DB'den sil
+        if (buildingId !== 'default') {
+            api.deleteExpenseItem(id).catch(console.error);
+        }
         toast.success("Gider kalemi silindi.");
     };
 
@@ -735,7 +918,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (user && user.email) {
-                userName = user.email.split('@')[0]; // Use first part of email for brevity
+                userName = user.email.split('@')[0];
             }
         } catch (e) {
             console.error("Auth user fetch error", e);
@@ -750,11 +933,86 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         setLogs(prev => [newLog, ...prev]);
 
-        // Push to DB (fire and forget)
         api.addLog(action, details, userName, buildingId).catch(err => {
-            // Silently fail or log to console, local state is updated anyway
             console.error("Failed to push log to DB", err);
         });
+    };
+
+    // Devir güncelleme
+    const updateDevir = (daireNo: number, amount: number) => {
+        setDues(prev => prev.map(d => {
+            if (d.daireNo === daireNo) {
+                const { totalPaid, balance } = calculateTotals(daireNo, amount, d.odemeler, d.asansorOdemesi, d.extraFees);
+                return {
+                    ...d,
+                    devredenBorc2024: amount,
+                    toplamOdenen: totalPaid,
+                    odenecekToplamBorc: balance
+                };
+            }
+            return d;
+        }));
+        addLog("DEVIR_GUNCELLE", `Daire ${daireNo}: Devir ${amount} TL olarak güncellendi`);
+    };
+
+    // Excel'den veri import etme
+    const importDuesData = (data: { daireNo: number; sakinAdi?: string; devir?: number; odemeler?: Record<string, number>; asansor?: number; extraFees?: Record<string, number> }[]) => {
+        setDues(prev => {
+            const updated = [...prev];
+            data.forEach(imported => {
+                const idx = updated.findIndex(d => d.daireNo === imported.daireNo);
+                if (idx >= 0) {
+                    const existing = updated[idx];
+                    const newDevir = imported.devir !== undefined ? imported.devir : existing.devredenBorc2024;
+                    const newOdemeler = imported.odemeler ? { ...existing.odemeler, ...imported.odemeler } : existing.odemeler;
+                    const newAsansor = imported.asansor !== undefined ? imported.asansor : existing.asansorOdemesi;
+                    const newExtra = imported.extraFees ? { ...existing.extraFees, ...imported.extraFees } : existing.extraFees;
+
+                    const { totalPaid, balance } = calculateTotals(imported.daireNo, newDevir, newOdemeler, newAsansor, newExtra);
+
+                    updated[idx] = {
+                        ...existing,
+                        sakinAdi: imported.sakinAdi || existing.sakinAdi,
+                        devredenBorc2024: newDevir,
+                        odemeler: newOdemeler,
+                        asansorOdemesi: newAsansor,
+                        extraFees: newExtra,
+                        toplamOdenen: totalPaid,
+                        odenecekToplamBorc: balance,
+                    };
+                }
+            });
+            return updated;
+        });
+        // DB'ye de sync et
+        data.forEach(imported => {
+            if (imported.odemeler) {
+                Object.entries(imported.odemeler).forEach(([month, amount]) => {
+                    api.updateDuesPayment(imported.daireNo, month, amount, year).catch(console.error);
+                });
+            }
+            if (imported.asansor !== undefined) {
+                api.updateElevatorPayment(imported.daireNo, imported.asansor, year).catch(console.error);
+            }
+            if (imported.extraFees) {
+                Object.entries(imported.extraFees).forEach(([col, amount]) => {
+                    api.updateExtraFee(imported.daireNo, col, amount, year).catch(console.error);
+                });
+            }
+        });
+        addLog("EXCEL_IMPORT", `${data.length} daire verisi Excel'den import edildi`);
+        toast.success(`${data.length} daire verisi başarıyla import edildi.`);
+    };
+
+    // localStorage + DB sync for column fees
+    useEffect(() => { localStorage.setItem(bKey("app_duesColumnFees"), JSON.stringify(duesColumnFees)); }, [duesColumnFees]);
+    useEffect(() => {
+        if (!canSaveToDB()) return;
+        api.saveBuildingSetting(buildingId, 'duesColumnFees', duesColumnFees).catch(() => { });
+    }, [duesColumnFees]);
+
+    const updateDuesColumnFee = (name: string, fee: number) => {
+        setDuesColumnFees(prev => ({ ...prev, [name]: fee }));
     };
 
     const value = {
@@ -765,14 +1023,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         monthlySummary,
         ledger,
         duesColumns,
+        duesColumnFees,
         availableYears,
         monthlyDuesAmount,
-        annualElevatorFee, // YENİ
+        annualElevatorFee,
         currentMonthIndex,
-        apartmentName, // YENİ
-        expenseItems, // YENİ
-        logs, // YENİ
-        addLog, // YENİ
+        apartmentName,
+        expenseItems,
+        logs,
+        isLoading,
+        addLog,
         updateDuesPayment,
         updateExtraFee,
         updateElevatorPayment,
@@ -787,15 +1047,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deleteLedgerEntry,
         addDuesColumn,
         removeDuesColumn,
+        updateDuesColumnFee,
         updateMonthlyDuesAmount,
-        updateMonthlySummaryRow, // YENİ
-        updateAnnualElevatorFee, // YENİ
+        updateMonthlySummaryRow,
+        updateAnnualElevatorFee,
+        updateDevir,
+        importDuesData,
         startNewYear,
         switchYear,
-        updateApartmentName, // YENİ
-        updateExpenseItem, // YENİ
-        addExpenseItem, // YENİ
-        removeExpenseItem // YENİ
+        updateApartmentName,
+        updateExpenseItem,
+        addExpenseItem,
+        removeExpenseItem,
+        isDbAvailable,
+        retryRemoteData
     };
 
     return (

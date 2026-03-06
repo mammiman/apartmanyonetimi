@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { getCurrentUser, supabase } from "@/lib/supabase";
+import * as api from "@/lib/api";
 
 interface ProtectedRouteProps {
     children: ReactNode;
@@ -66,21 +67,28 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
             }
 
             console.log('checkUser - No resident session, checking Supabase...');
-            // Otherwise check Supabase auth (for admin users)
-            const currentUser = await getCurrentUser();
-            console.log('checkUser - Supabase user:', currentUser);
 
-            if (currentUser) {
-                setUser(currentUser);
-                setIsLoading(false);
-                return;
+            // We MUST check Supabase Auth (which is usually on a different service than PostgREST)
+            // Even if api.waitForDb() is false (database is down), Auth might be UP.
+            // getCurrentUser now handles the DB failure internally by using local cache.
+            try {
+                const currentUser = await getCurrentUser();
+                console.log('checkUser - Supabase user:', currentUser);
+
+                if (currentUser) {
+                    setUser(currentUser);
+                    setIsLoading(false);
+                    return;
+                }
+            } catch (err) {
+                console.error('checkUser - Supabase getCurrentUser failed heavily:', err);
             }
 
             // No user found
             console.log('checkUser - No user found');
             setUser(null);
         } catch (error) {
-            console.error('checkUser - Error:', error);
+            console.error('checkUser - Outer Error:', error);
             setUser(null);
         } finally {
             setIsLoading(false);

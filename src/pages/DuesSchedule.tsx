@@ -1,10 +1,10 @@
 import { Layout } from "@/components/Layout";
 import { MONTHS, formatNumber, formatCurrency, MONTHLY_DUES, ELEVATOR_FEE } from "@/data/initialData";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
-import { Pencil, Save, Plus, Trash2, Download } from "lucide-react";
+import { Pencil, Save, Plus, Trash2, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useData } from "@/context/DataContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -26,27 +26,36 @@ const DuesSchedule = () => {
     dues,
     apartments,
     duesColumns,
+    duesColumnFees,
     updateDuesPayment,
     updateElevatorPayment,
     updateExtraFee,
     addDuesColumn,
     removeDuesColumn,
+    updateDuesColumnFee,
     year,
-    monthlyDuesAmount, // Context'ten al
-    currentMonthIndex, // Context'ten al
-    updateMonthlyDuesAmount, // Context'ten al
-    annualElevatorFee, // YENİ
-    updateAnnualElevatorFee // YENİ
+    monthlyDuesAmount,
+    currentMonthIndex,
+    updateMonthlyDuesAmount,
+    annualElevatorFee,
+    updateAnnualElevatorFee,
+    updateDevir,
+    importDuesData,
   } = useData();
 
   const [isEditing, setIsEditing] = useState(false);
   const [newColumnName, setNewColumnName] = useState("");
+  const [newColumnFee, setNewColumnFee] = useState<string>("");
   const [isAddColOpen, setIsAddColOpen] = useState(false);
   const [isDeleteColOpen, setIsDeleteColOpen] = useState(false);
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
   const [isEditingDuesAmount, setIsEditingDuesAmount] = useState(false);
   const [isEditingElevator, setIsEditingElevator] = useState(false);
   const [selectedBlock, setSelectedBlock] = useState("all");
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importPreview, setImportPreview] = useState<any[] | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Local edit buffer: key = `${daireNo}_${month}`, value = string
   const [localEditValues, setLocalEditValues] = useState<Record<string, string>>({});
 
@@ -75,10 +84,10 @@ const DuesSchedule = () => {
     : (dues || []).filter(d => {
       const apt = apartments.find(a => a.daireNo === d.daireNo);
       return apt?.blok === selectedBlock;
-    }); // YENİ
+    });
   const [tempDuesAmount, setTempDuesAmount] = useState(monthlyDuesAmount);
   const [showFutureMonths, setShowFutureMonths] = useState(false);
-  const showLateFees = true; // YENİ: Her zaman göster
+  const showLateFees = true;
 
 
   const toggleEdit = () => {
@@ -90,8 +99,10 @@ const DuesSchedule = () => {
 
   const handleAddColumn = () => {
     if (newColumnName) {
-      addDuesColumn(newColumnName);
+      const fee = parseFloat(newColumnFee) || 0;
+      addDuesColumn(newColumnName, fee > 0 ? fee : undefined);
       setNewColumnName("");
+      setNewColumnFee("");
       setIsAddColOpen(false);
     }
   };
@@ -117,25 +128,246 @@ const DuesSchedule = () => {
       d.odenecekToplamBorc
     ]);
 
-    // Use enhanced Excel export
     import('@/lib/exportUtils').then(({ exportToExcel }) => {
       exportToExcel(`Aidat_Cizelgesi_${year}`, {
         title: `${year} Yılı Aidat Ödeme Çizelgesi`,
         subtitle: `Saffet Sabancı Apartmanı - Aylık Aidat: ${formatCurrency(monthlyDuesAmount)}`,
         headers,
         rows,
-        highlightColumns: [rows[0].length - 1], // Highlight balance column
-        redIfNegative: [rows[0].length - 1] // Red if negative balance
+        highlightColumns: [rows[0].length - 1],
+        redIfNegative: [rows[0].length - 1]
       });
       toast.success('Tablo Excel dosyası olarak indirildi');
     });
   };
 
-  // YENİ: Bakiye hesaplama - Sadece mevcut aya kadar
+  // Excel Import İşlemi
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const workbookRefObj = useRef<any>(null);
+  const [isSheetSelectOpen, setIsSheetSelectOpen] = useState(false);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const XLSX = await import('xlsx');
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+
+      workbookRefObj.current = workbook;
+
+      if (workbook.SheetNames.length > 1) {
+        setSheetNames(workbook.SheetNames);
+        setIsSheetSelectOpen(true);
+      } else {
+        processSheet(workbook, workbook.SheetNames[0], XLSX);
+      }
+    } catch (err) {
+      console.error('Excel parse error:', err);
+      toast.error("Excel dosyası okunamadı. Lütfen geçerli bir .xlsx dosyası seçin.");
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const processSheet = async (workbook: any, sheetName: string, xlsxModule?: any) => {
+    try {
+      const XLSX = xlsxModule || await import('xlsx');
+      const ws = workbook.Sheets[sheetName];
+
+      if (!ws) {
+        toast.error(`"${sheetName}" sayfası bulunamadı.`);
+        return;
+      }
+
+      const jsonData: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      console.log('[Excel Import] Sheet:', sheetName, 'Rows:', jsonData.length);
+
+      if (jsonData.length < 2) {
+        toast.error("Excel sayfasında yeterli veri bulunamadı.");
+        return;
+      }
+
+      // Header satırını otomatik bul
+      let headerRowIdx = -1;
+      let headerRow: string[] = [];
+
+      for (let i = 0; i < Math.min(jsonData.length, 15); i++) {
+        const row = jsonData[i];
+        if (!row) continue;
+        const rowStr = row.map((h: any) => String(h || '').trim().toUpperCase());
+        const hasDaire = rowStr.some((h: string) =>
+          h === 'DAİRE NO' || h === 'DAIRE NO' || h === 'DAİRE' || h === 'DAIRE' || h === 'NO'
+        );
+        const hasMonth = rowStr.some((h: string) =>
+          h.startsWith('OCAK') || h.startsWith('ŞUB') || h.startsWith('MART')
+        );
+        if (hasDaire && hasMonth) {
+          headerRowIdx = i;
+          headerRow = rowStr;
+          break;
+        }
+        if (hasDaire) {
+          const hasName = rowStr.some((h: string) =>
+            h.includes('ADI') || h.includes('SAKİN') || h.includes('SAKIN') || h.includes('SOYADI')
+          );
+          if (hasName) {
+            headerRowIdx = i;
+            headerRow = rowStr;
+            break;
+          }
+        }
+      }
+
+      console.log('[Excel Import] Header row index:', headerRowIdx, 'Columns:', headerRow);
+
+      if (headerRowIdx < 0) {
+        toast.error(`"${sheetName}" sayfasında 'DAİRE NO' sütun başlığı bulunamadı.`);
+        return;
+      }
+
+      // Sütun indekslerini bul
+      const daireIdx = headerRow.findIndex((h: string) =>
+        h === 'DAİRE NO' || h === 'DAIRE NO' || h === 'DAİRE' || h === 'DAIRE' || h === 'NO'
+      );
+      const sakinIdx = headerRow.findIndex((h: string) =>
+        h.includes('ADI') || h.includes('SAKİN') || h.includes('SAKIN') || h === 'AD SOYAD'
+      );
+      // Devir: "DEVREDEN" özellikle ara, "BORÇ" tek başına yakalanmasın
+      const devirIdx = headerRow.findIndex((h: string) =>
+        h.includes('DEVİR') || h.includes('DEVIR') || h.includes('DEVREDEN')
+      );
+      // Asansör: son sütunlarda ara (TOPLAM ÖDENEN sonrası)
+      const toplamIdx = headerRow.findIndex((h: string) => h.includes('TOPLAM'));
+      const asansorIdx = headerRow.findIndex((h: string, idx: number) =>
+        (h.includes('ASANSÖR') || h.includes('ASANSOR')) && (toplamIdx < 0 || idx > toplamIdx)
+      );
+      // Asansör bulunamadıysa herhangi birini al
+      const finalAsansorIdx = asansorIdx >= 0 ? asansorIdx : headerRow.findIndex((h: string) =>
+        h.includes('ASANSÖR') || h.includes('ASANSOR')
+      );
+
+      const diyafonIdx = headerRow.findIndex((h: string) =>
+        h.includes('DİYAFON') || h.includes('DIYAFON') || h.includes('GÖRÜNTÜ')
+      );
+
+      // Ay sütunlarını bul
+      const monthMap: Record<string, string[]> = {
+        'OCAK': ['OCAK'],
+        'ŞUBAT': ['ŞUBAT', 'SUBAT', 'ŞUB'],
+        'MART': ['MART'],
+        'NİSAN': ['NİSAN', 'NISAN', 'NİS'],
+        'MAYIS': ['MAYIS', 'MAY'],
+        'HAZİRAN': ['HAZİRAN', 'HAZIRAN', 'HAZ'],
+        'TEMMUZ': ['TEMMUZ', 'TEM'],
+        'AĞUSTOS': ['AĞUSTOS', 'AGUSTOS', 'AĞU'],
+        'EYLÜL': ['EYLÜL', 'EYLUL', 'EYL'],
+        'EKİM': ['EKİM', 'EKIM'],
+        'KASIM': ['KASIM', 'KAS'],
+        'ARALIK': ['ARALIK', 'ARA']
+      };
+
+      const monthIndices: Record<string, number> = {};
+      MONTHS.forEach(month => {
+        const aliases = monthMap[month] || [month];
+        const idx = headerRow.findIndex((h: string) => {
+          const trimmed = h.trim();
+          return aliases.some(alias => trimmed === alias || trimmed.startsWith(alias + ' '));
+        });
+        if (idx >= 0) monthIndices[month] = idx;
+      });
+
+      const extraColumnIndices: Record<string, number> = {};
+      duesColumns.forEach(col => {
+        const idx = headerRow.findIndex((h: string) =>
+          h.trim() === col.toUpperCase() || h.includes(col.toUpperCase())
+        );
+        if (idx >= 0) extraColumnIndices[col] = idx;
+      });
+
+      if (diyafonIdx >= 0 && !duesColumns.some(c => c.toUpperCase().includes('DİYAFON'))) {
+        extraColumnIndices['Görüntülü Diyafon'] = diyafonIdx;
+      }
+
+      console.log('[Excel Import] Columns found - Daire:', daireIdx, 'Sakin:', sakinIdx, 'Devir:', devirIdx, 'Asansör:', finalAsansorIdx, 'Months:', monthIndices);
+
+      if (daireIdx < 0) {
+        toast.error("Excel dosyasında 'Daire' sütunu bulunamadı.");
+        return;
+      }
+
+      // Verileri parse et
+      const parsedData: any[] = [];
+      for (let i = headerRowIdx + 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (!row || row[daireIdx] === null || row[daireIdx] === undefined) continue;
+
+        const daireNo = parseInt(String(row[daireIdx]));
+        if (isNaN(daireNo) || daireNo <= 0) continue;
+
+        const entry: any = { daireNo };
+
+        if (sakinIdx >= 0 && row[sakinIdx]) {
+          entry.sakinAdi = String(row[sakinIdx]).trim();
+        }
+        if (devirIdx >= 0 && row[devirIdx] !== undefined && row[devirIdx] !== null && row[devirIdx] !== '') {
+          entry.devir = parseFloat(String(row[devirIdx]).replace(',', '.')) || 0;
+        }
+        if (finalAsansorIdx >= 0 && row[finalAsansorIdx] !== undefined && row[finalAsansorIdx] !== null && row[finalAsansorIdx] !== '') {
+          entry.asansor = parseFloat(String(row[finalAsansorIdx]).replace(',', '.')) || 0;
+        }
+
+        const odemeler: Record<string, number> = {};
+        Object.entries(monthIndices).forEach(([month, idx]) => {
+          if (row[idx] !== undefined && row[idx] !== null && row[idx] !== '') {
+            const val = parseFloat(String(row[idx]).replace(',', '.')) || 0;
+            if (val > 0) odemeler[month] = val;
+          }
+        });
+        if (Object.keys(odemeler).length > 0) entry.odemeler = odemeler;
+
+        const extraFees: Record<string, number> = {};
+        Object.entries(extraColumnIndices).forEach(([col, idx]) => {
+          if (row[idx] !== undefined && row[idx] !== null && row[idx] !== '') {
+            const val = parseFloat(String(row[idx]).replace(',', '.')) || 0;
+            if (val > 0) extraFees[col] = val;
+          }
+        });
+        if (Object.keys(extraFees).length > 0) entry.extraFees = extraFees;
+
+        parsedData.push(entry);
+      }
+
+      console.log('[Excel Import] Parsed data count:', parsedData.length, parsedData.slice(0, 3));
+
+      if (parsedData.length === 0) {
+        toast.error("Excel'den okunabilir veri bulunamadı.");
+        return;
+      }
+
+      setImportPreview(parsedData);
+      setIsImportOpen(true);
+      setIsSheetSelectOpen(false);
+      toast.info(`${parsedData.length} daire verisi okundu. Onaylamak için "İçe Aktar" butonuna basın.`);
+    } catch (err: any) {
+      console.error('[Excel Import] Error:', err);
+      toast.error(`Excel işlenirken hata: ${err?.message || 'Bilinmeyen hata'}`);
+    }
+  };
+
+  const confirmImport = () => {
+    if (importPreview && importPreview.length > 0) {
+      importDuesData(importPreview);
+      setImportPreview(null);
+      setIsImportOpen(false);
+    }
+  };
+
+  // Bakiye hesaplama
   const calculateBalance = (row: any, isManager: boolean, subjectToElevator: boolean) => {
     const devir = row.devredenBorc2024 || 0;
 
-    // Sadece geçmiş ve mevcut ayların borcunu hesapla (Yönetici hariç)
     let totalDue = 0;
     MONTHS.forEach((m, idx) => {
       if (!isManager && idx <= currentMonthIndex) {
@@ -143,21 +375,23 @@ const DuesSchedule = () => {
       }
     });
 
-    // Yıllık Asansör Borcu
     if (subjectToElevator) {
       totalDue += annualElevatorFee;
     }
 
-    // Gecikme Cezası
+    // Extra sütun ücretlerini ekle
+    duesColumns.forEach(col => {
+      const colFee = duesColumnFees[col] || 0;
+      if (colFee > 0 && !isManager) {
+        totalDue += colFee;
+      }
+    });
+
     const penalty = calculateLateFee(row, isManager);
     totalDue += penalty;
 
-    // Toplam ödenen (Aidat + Asansör + Ekstra)
-    // MonthlyDues içerisinde toplamOdenen zaten hesaplanmış olmalı veya burada hesaplayabiliriz.
-    // Assuming context keeps 'toplamOdenen' updated properly including elevator payment.
     const totalPaid = row.toplamOdenen || 0;
 
-    // Bakiye = Devir + Toplam Borç - Toplam Ödenen
     return devir + totalDue - totalPaid;
   };
 
@@ -350,6 +584,20 @@ const DuesSchedule = () => {
               <Download className="w-4 h-4 mr-1" /> İndir
             </Button>
 
+            {/* Excel Import Butonu */}
+            <div className="relative">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="bg-green-50 hover:bg-green-100 border-green-300 text-green-700">
+                <Upload className="w-4 h-4 mr-1" /> İçe Aktar
+              </Button>
+            </div>
+
             <div className="h-6 w-px bg-border mx-1"></div>
 
             <Button
@@ -375,17 +623,30 @@ const DuesSchedule = () => {
           </Tabs>
         )}
 
-        {/* Add Column Dialog */}
+        {/* Add Column Dialog - Ücret alanı eklendi */}
         <Dialog open={isAddColOpen} onOpenChange={setIsAddColOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Yeni Sütun Ekle</DialogTitle>
+              <DialogTitle>Yeni Ödeme Sütunu Ekle</DialogTitle>
             </DialogHeader>
-            <div className="py-4">
-              <Label>Sütun Başlığı (Örn: Yakıt Farkı)</Label>
-              <Input value={newColumnName} onChange={e => setNewColumnName(e.target.value)} placeholder="Başlık giriniz..." />
+            <div className="py-4 space-y-4">
+              <div>
+                <Label>Sütun Başlığı (Örn: Yakıt Farkı)</Label>
+                <Input value={newColumnName} onChange={e => setNewColumnName(e.target.value)} placeholder="Başlık giriniz..." />
+              </div>
+              <div>
+                <Label>Ücret (TL) — <span className="text-muted-foreground text-xs">Her daire için beklenen toplam ücret</span></Label>
+                <Input
+                  type="number"
+                  value={newColumnFee}
+                  onChange={e => setNewColumnFee(e.target.value)}
+                  placeholder="Örn: 500"
+                  className="mt-1"
+                />
+              </div>
             </div>
             <DialogFooter>
+              <Button variant="outline" onClick={() => setIsAddColOpen(false)}>İptal</Button>
               <Button onClick={handleAddColumn}>Ekle</Button>
             </DialogFooter>
           </DialogContent>
@@ -405,7 +666,12 @@ const DuesSchedule = () => {
                 <div className="flex flex-col gap-2">
                   {(duesColumns || []).map(col => (
                     <div key={col} className="flex items-center justify-between p-2 rounded border bg-card">
-                      <span className="font-medium">{col}</span>
+                      <div>
+                        <span className="font-medium">{col}</span>
+                        {duesColumnFees[col] > 0 && (
+                          <span className="ml-2 text-xs text-muted-foreground">(Ücret: {formatNumber(duesColumnFees[col])} TL)</span>
+                        )}
+                      </div>
                       <Button
                         variant="destructive"
                         size="sm"
@@ -420,6 +686,101 @@ const DuesSchedule = () => {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsDeleteColOpen(false)}>Kapat</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Sheet Select - Simple Modal (Radix Dialog sorun çıkarıyordu) */}
+        {isSheetSelectOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setIsSheetSelectOpen(false)}>
+            <div className="fixed inset-0 bg-black/50" />
+            <div
+              className="relative z-50 bg-white rounded-lg shadow-xl p-5 w-[340px] max-h-[400px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-base font-semibold mb-1">Sayfa Seçin</h3>
+              <p className="text-xs text-gray-500 mb-3">İçe aktarılacak sayfayı seçin:</p>
+              <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto">
+                {sheetNames.map((name, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-gray-200 bg-white text-left text-sm font-medium hover:bg-blue-50 hover:border-blue-400 active:bg-blue-100 transition-colors cursor-pointer"
+                    onClick={() => {
+                      const wb = workbookRefObj.current;
+                      if (wb) {
+                        setIsSheetSelectOpen(false);
+                        processSheet(wb, name);
+                      }
+                    }}
+                  >
+                    📄 {name}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-sm rounded-md border border-gray-300 bg-white hover:bg-gray-50 transition-colors"
+                  onClick={() => setIsSheetSelectOpen(false)}
+                >
+                  İptal
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Import Preview Dialog */}
+        <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
+          <DialogContent className="max-w-lg max-h-[70vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-base">İçe Aktarma Önizleme</DialogTitle>
+            </DialogHeader>
+            <div className="py-2">
+              <p className="text-xs text-muted-foreground mb-3">
+                {importPreview?.length || 0} daire verisi bulundu.
+              </p>
+              <div className="overflow-x-auto rounded border max-h-[40vh] overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-100">
+                      <TableHead className="text-[10px] font-bold py-1 px-2">No</TableHead>
+                      <TableHead className="text-[10px] font-bold py-1 px-2">Sakin</TableHead>
+                      <TableHead className="text-[10px] font-bold py-1 px-2">Devir</TableHead>
+                      <TableHead className="text-[10px] font-bold py-1 px-2">Ödemeler</TableHead>
+                      <TableHead className="text-[10px] font-bold py-1 px-2">Asn.</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {importPreview?.map((item, idx) => {
+                      const matchedDaire = dues.find(d => d.daireNo === item.daireNo);
+                      return (
+                        <TableRow key={idx} className={matchedDaire ? '' : 'bg-yellow-50'}>
+                          <TableCell className="text-[10px] font-bold py-1 px-2">{item.daireNo}</TableCell>
+                          <TableCell className="text-[10px] py-1 px-2 max-w-[100px] truncate">{item.sakinAdi || '-'}</TableCell>
+                          <TableCell className="text-[10px] py-1 px-2">{item.devir !== undefined ? formatNumber(item.devir) : '-'}</TableCell>
+                          <TableCell className="text-[10px] py-1 px-2 max-w-[150px] truncate">
+                            {item.odemeler ? Object.entries(item.odemeler).map(([m, v]) => `${(m as string).slice(0, 3)}:${v}`).join(' ') : '-'}
+                          </TableCell>
+                          <TableCell className="text-[10px] py-1 px-2">{item.asansor !== undefined ? formatNumber(item.asansor) : '-'}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              {importPreview && importPreview.some(p => !dues.some(d => d.daireNo === p.daireNo)) && (
+                <p className="text-[10px] text-amber-700 mt-2">
+                  ⚠ Sarı satırlar sistemde olmayan daireler — import edilmeyecek.
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => { setImportPreview(null); setIsImportOpen(false); }}>İptal</Button>
+              <Button size="sm" onClick={confirmImport} className="bg-green-600 hover:bg-green-700">
+                İçe Aktar ({importPreview?.filter(p => dues.some(d => d.daireNo === p.daireNo)).length || 0} daire)
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -444,9 +805,14 @@ const DuesSchedule = () => {
                   {!hiddenColumns.includes('asansor') && <TableHead className="text-center font-bold bg-indigo-700 text-indigo-100 text-xs tracking-wider whitespace-nowrap">ASANSÖR</TableHead>}
                   {(duesColumns || []).map(col => !hiddenColumns.includes(col) && (
                     <TableHead key={col} className="text-center font-bold bg-sky-700 text-sky-100 text-xs">
-                      <div className="flex items-center justify-center gap-1">
-                        {col}
-                        {isEditing && <Trash2 className="w-3 h-3 cursor-pointer text-red-300 hover:text-red-100" onClick={() => removeDuesColumn(col)} />}
+                      <div className="flex flex-col items-center gap-0.5">
+                        <div className="flex items-center gap-1">
+                          {col}
+                          {isEditing && <Trash2 className="w-3 h-3 cursor-pointer text-red-300 hover:text-red-100" onClick={() => removeDuesColumn(col)} />}
+                        </div>
+                        {duesColumnFees[col] > 0 && (
+                          <span className="text-[9px] text-sky-200 font-normal">({formatNumber(duesColumnFees[col])} TL)</span>
+                        )}
                       </div>
                     </TableHead>
                   ))}
@@ -459,22 +825,23 @@ const DuesSchedule = () => {
               </TableHeader>
               <TableBody>
                 {filteredDues.map((row) => {
-                  // Check if this apartment is manager
                   const apartment = apartments.find(apt => apt.daireNo === row.daireNo);
                   const isManager = apartment?.isManager || false;
                   const subjectToElevator = apartment?.asansorTabi || false;
 
-                  const annualExpected = (isManager ? 0 : 12 * monthlyDuesAmount) + (subjectToElevator ? annualElevatorFee : 0);
+                  // Sütun ücretlerini yıllık toplama ekle
+                  const extraColumnTotal = duesColumns.reduce((sum, col) => sum + (duesColumnFees[col] || 0), 0);
+                  const annualExpected = (isManager ? 0 : 12 * monthlyDuesAmount) + (subjectToElevator ? annualElevatorFee : 0) + (isManager ? 0 : extraColumnTotal);
 
                   const lateFee = calculateLateFee(row, isManager);
-                  const displayBalance = calculateBalance(row, isManager, subjectToElevator); // YENİ: Mevcut aya göre bakiye
+                  const displayBalance = calculateBalance(row, isManager, subjectToElevator);
                   const isDebt = displayBalance > 0;
 
                   return (
                     <TableRow
                       key={row.daireNo}
                       className={`transition-colors group border-b border-slate-100 ${isManager
-                        ? 'bg-purple-50/50 hover:bg-purple-100/50 opacity-60 cursor-not-allowed' // Disabled
+                        ? 'bg-purple-50/50 hover:bg-purple-100/50 opacity-60 cursor-not-allowed'
                         : 'hover:bg-blue-50/50'
                         }`}
                     >
@@ -487,30 +854,49 @@ const DuesSchedule = () => {
                       {!hiddenColumns.includes('sakin') && <TableCell className={`sticky left-[50px] ${isManager ? 'bg-purple-50/50 group-hover:bg-purple-100/50' : 'bg-white group-hover:bg-blue-50'} z-10 font-medium text-xs whitespace-nowrap border-r shadow-[1px_0_0_0_hsl(var(--border))] text-slate-900`}>
                         {row.sakinAdi}
                       </TableCell>}
+
+                      {/* DEVİR - Düzenlenebilir */}
                       {!hiddenColumns.includes('devir') && <TableCell className={`text-center text-xs font-medium border-r bg-orange-50/30 ${row.devredenBorc2024 < 0 ? 'text-red-600 font-bold' : 'text-slate-600'}`}>
-                        {formatNumber(row.devredenBorc2024)}
+                        {isEditing ? (
+                          <Input
+                            type="number"
+                            value={getLocalVal(row.daireNo, '_devir', row.devredenBorc2024)}
+                            onChange={(e) => handleDuesInputChange(row.daireNo, '_devir', e.target.value)}
+                            onBlur={() => {
+                              const key = `${row.daireNo}__devir`;
+                              if (key in localEditValues) {
+                                const parsed = parseFloat(localEditValues[key]) || 0;
+                                updateDevir(row.daireNo, parsed);
+                                setLocalEditValues(prev => { const n = { ...prev }; delete n[key]; return n; });
+                              }
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
+                            className="h-8 w-20 text-right text-xs px-1 mx-auto"
+                          />
+                        ) : (
+                          formatNumber(row.devredenBorc2024)
+                        )}
                       </TableCell>}
+
                       {MONTHS.map((month, idx) => {
-                        // Gelecek ayları göster/gizle kontrolü
                         if (!showFutureMonths && idx > currentMonthIndex) return null;
                         if (hiddenColumns.includes(month)) return null;
 
                         const val = row.odemeler[month] || 0;
                         const isPastMonth = idx < currentMonthIndex;
                         const isFullPaid = val >= monthlyDuesAmount;
-                        const isUnpaid = !isManager && val < monthlyDuesAmount; // Yönetici muaf
+                        const isUnpaid = !isManager && val < monthlyDuesAmount;
 
                         let bgClass = "";
                         let cellClass = "";
 
                         if (isFullPaid) {
                           bgClass = "bg-emerald-200 text-emerald-900 font-bold shadow-sm";
-                        } else if (isUnpaid && isPastMonth) { // Sadece geçmiş aylarda kırmızı
-                          // BÜTÜN ÖDENMEYEN KUTUCUKLAR KIRMIZI!
+                        } else if (isUnpaid && isPastMonth) {
                           bgClass = "bg-red-500 text-white font-extrabold shadow-lg";
                           cellClass = "bg-red-100 ring-2 ring-red-500";
                         } else if (isManager) {
-                          bgClass = "text-purple-400 font-bold"; // Yönetici için özel stil
+                          bgClass = "text-purple-400 font-bold";
                         }
 
                         return (
@@ -603,14 +989,29 @@ const DuesSchedule = () => {
                       {(duesColumns || []).map(col => !hiddenColumns.includes(col) && (
                         <TableCell key={col} className="text-center p-1 border-r border-sky-100 bg-sky-50/30">
                           {isEditing ? (
-                            <Input
-                              type="number"
-                              value={row.extraFees?.[col] || ''}
-                              onChange={(e) => updateExtraFee(row.daireNo, col, parseFloat(e.target.value) || 0)}
-                              className="h-8 w-16 text-right text-xs px-1 mx-auto"
-                            />
+                            <div className="flex flex-col gap-1">
+                              <Input
+                                type="number"
+                                value={row.extraFees?.[col] || ''}
+                                onChange={(e) => updateExtraFee(row.daireNo, col, parseFloat(e.target.value) || 0)}
+                                className="h-8 w-16 text-right text-xs px-1 mx-auto"
+                              />
+                              {duesColumnFees[col] > 0 && (row.extraFees?.[col] || 0) < duesColumnFees[col] && !isManager && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 text-[10px] px-1 bg-sky-50 hover:bg-sky-100 border-sky-300 text-sky-700"
+                                  onClick={() => updateExtraFee(row.daireNo, col, duesColumnFees[col])}
+                                >
+                                  ✓ Öde
+                                </Button>
+                              )}
+                            </div>
                           ) : (
-                            <span className="text-xs font-medium text-sky-700">{formatNumber(row.extraFees?.[col] || 0)}</span>
+                            <span className={`text-xs font-medium ${duesColumnFees[col] > 0 && (row.extraFees?.[col] || 0) >= duesColumnFees[col]
+                              ? 'text-emerald-600 font-bold'
+                              : 'text-sky-700'
+                              }`}>{formatNumber(row.extraFees?.[col] || 0)}</span>
                           )}
                         </TableCell>
                       ))}

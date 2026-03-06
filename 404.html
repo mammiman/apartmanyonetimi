@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ProYönetim Site - Yönlendiriliyor...</title>
+    <script>
+        // GitHub Pages SPA redirect
+        // /apartmanyonetimi/resident → /apartmanyonetimi/#/resident
+        (function () {
+            var segmentCount = 1; // base path segment sayısı (/apartmanyonetimi = 1)
+            var l = window.location;
+            var pathSegments = l.pathname.slice(1).split('/');
+            var basePath = '/' + pathSegments.slice(0, segmentCount).join('/');
+            var rest = pathSegments.slice(segmentCount).join('/');
+            var hash = rest ? '#/' + rest : '#/';
+            l.replace(
+                l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+                basePath + '/' + hash +
+                (l.search ? '?' + l.search.slice(1) : '') +
+                l.hash
+            );
+        })();
+    </script>
+</head>
+
+<body>
+    <p>Yönlendiriliyor...</p>
+</body>
+
+</html>

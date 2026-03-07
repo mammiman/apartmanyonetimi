@@ -474,11 +474,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     // ===== Settings değiştiğinde DB'ye kaydet =====
-    // Not: İlk yükleme tamamlanmadan veya DB bağlantısı yoksa kaydetmeyi önle
-    const canSaveToDB = () => initialLoadDone.current && buildingId !== 'default' && dbConnected.current;
+    // KRİTİK: Veriler gerçekten dolmadan (isLoading) veya DB bağlı değilse DB'yi EZME!
+    const canSaveToDB = () => !isLoading && initialLoadDone.current && buildingId !== 'default' && dbConnected.current;
 
     useEffect(() => {
         if (!canSaveToDB()) return;
+
         api.saveBuildingSetting(buildingId, 'apartmentName', apartmentName).catch(() => { });
     }, [apartmentName]);
 
@@ -515,17 +516,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Monthly Summary değiştiğinde DB'ye kaydet (tablo mevcutsa)
     useEffect(() => {
         if (!canSaveToDB() || !dbTablesAvailable.current.monthly_summary) return;
+
+        // Sadece GELİR veya GİDER gerçekten hesaplanmışsa (0'dan farklıysa veya 0 olarak teyit edilmişse) kaydet
         monthlySummary.forEach(m => {
+            // "Devir" satırlarını kaydetme, onlar manuel girilmez
+            if (m.ay === 'Devir') return;
+
             api.saveMonthlySummaryRow(buildingId, year, m.ay, {
                 gelir: m.gelir,
                 gider: m.gider,
-                asansor: m.asansor,
-                kasa: m.kasa,
-                banka: m.banka,
+                asansor: m.asansor || 0,
+                kasa: m.kasa || 0,
+                banka: m.banka || 0,
                 fark: m.fark,
             }).catch(() => { dbTablesAvailable.current.monthly_summary = false; });
         });
-    }, [monthlySummary]);
+    }, [monthlySummary, buildingId, year]);
 
     // Ledger değişince gelir/gider/fark güncelle; kasa ve banka'yı koru
     useEffect(() => {

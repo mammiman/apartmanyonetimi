@@ -1,42 +1,46 @@
-<!doctype html>
-<html lang="tr">
+<!DOCTYPE html>
+<html>
 
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ProYönetim - Yönlendiriliyor...</title>
-    <script>
-        // GitHub Pages SPA redirect
-        // /apartmanyonetimi/resident  →  /apartmanyonetimi/#/resident
-        // /resident (base-path'siz)   →  /apartmanyonetimi/#/resident
-        (function () {
-            var l = window.location;
-            var baseName = 'apartmanyonetimi';
-            var pathParts = l.pathname.slice(1).split('/').filter(Boolean);
-
-            var basePath, rest;
-            if (pathParts[0] === baseName) {
-                basePath = '/' + baseName;
-                rest = pathParts.slice(1).join('/');
+    <meta charset="utf-8">
+    <title>Yönlendiriliyor...</title>
+    <script type="text/javascript">
+        // -----------------------------------------------------------------------------------
+        // GitHub Pages SPA Routing Hack - HashRouter Friendly
+        // -----------------------------------------------------------------------------------
+        (function (l) {
+            if (l.search[1] === '/') {
+                var decoded = l.search.slice(1).split('&').map(function (s) {
+                    return s.replace(/~and~/g, '&')
+                }).join('?');
+                window.history.replaceState(null, null,
+                    l.pathname.slice(0, -1) + decoded + l.hash
+                );
             } else {
-                basePath = '/' + baseName;
-                rest = pathParts.join('/');
+                // Eğer doğrudan path yazıldıysa (örn: /resident), 
+                // onu hash'e çevir: /apartmanyonetimi/#/resident
+                var path = l.pathname;
+                var segments = path.split('/').filter(Boolean);
+                var baseName = 'apartmanyonetimi';
+
+                // Base name'i temizle
+                var rest = segments.filter(function (s) { return s !== baseName; }).join('/');
+
+                var newUrl = l.protocol + '//' + l.host + '/' + baseName + '/#/' + rest + l.search + l.hash;
+
+                if (path.indexOf('/' + baseName) === -1 && path !== '/') {
+                    // Base name yoksa ekle
+                    newUrl = l.protocol + '//' + l.host + '/' + baseName + '/#/' + segments.join('/') + l.search + l.hash;
+                }
+
+                l.replace(newUrl);
             }
-
-            var hash = rest ? '#/' + rest : '#/';
-            var search = l.search ? l.search.slice(1) : '';
-
-            l.replace(
-                l.protocol + '//' + l.host +
-                basePath + '/' + hash +
-                (search ? '?' + search : '')
-            );
-        })();
+        }(window.location));
     </script>
 </head>
 
 <body>
-    <p>Yönlendiriliyor...</p>
+    Yönlendiriliyor...
 </body>
 
 </html>

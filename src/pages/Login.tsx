@@ -73,11 +73,16 @@ const Login = () => {
         setIsLoading(true);
 
         try {
-            const result = await signInWithAccessCode(accessCode);
+            await signInWithAccessCode(accessCode);
             toast.success("Giriş başarılı!");
-            // Hash router kullanıyoruz: /resident yerine /#/resident
-            // residentSession localStorage'a kaydedildi, direkt hash'e yönlendir
-            window.location.href = window.location.origin + '/apartmanyonetimi/#/resident';
+
+            // Navigate to resident page using router (handles base path automatically)
+            navigate("/resident");
+
+            // Force a reload after a short delay to ensure context (isResident etc.) is updated correctly
+            setTimeout(() => {
+                window.location.reload();
+            }, 100);
         } catch (error: any) {
             toast.error("Geçersiz erişim kodu");
         } finally {

@@ -438,6 +438,36 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loadRemoteData();
     }, [buildingId, year]);
 
+    // initialLoadDone olunca mevcut aidat ödemelerini ledger_entries'e sync et (tek seferlik migration)
+    const ledgerSyncDoneRef = useRef(false);
+    useEffect(() => {
+        if (isLoading) return; // loadRemote henüz bitmedi
+        if (ledgerSyncDoneRef.current) return;
+        if (!buildingId || buildingId === 'default') return;
+        if (!api.isDbAvailable()) return;
+        // Zaten ledger'da aidat_dues kayıtları varsa sync gerekmez
+        const hasAnyAidat = MONTHS.some(m =>
+            (ledger[m]?.gelirler || []).some(r => String(r.aciklama).startsWith('aidat_dues_'))
+        );
+        if (hasAnyAidat) {
+            ledgerSyncDoneRef.current = true;
+            return;
+        }
+        // Mevcut tüm aidat ödemelerini ledger_entries tablosuna yaz (migration)
+        ledgerSyncDoneRef.current = true;
+        const effectiveBuildingId = buildingId !== 'default' ? buildingId : undefined;
+        dues.forEach(due => {
+            MONTHS.forEach(month => {
+                const amount = due.odemeler?.[month] || 0;
+                if (amount > 0) {
+                    const apt = apartments.find(a => a.daireNo === due.daireNo);
+                    const sakinAdi = apt?.sakinAdi || due.sakinAdi || String(due.daireNo);
+                    api.upsertLedgerAidatEntry(month, due.daireNo, sakinAdi, amount, effectiveBuildingId).catch(() => { });
+                }
+            });
+        });
+    }, [isLoading]); // isLoading false'a dönünce tetiklenir
+
     const retryRemoteData = async () => {
         api.resetDbStatus();
         window.location.reload();
@@ -682,7 +712,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const addApartment = async (apt: Apartment) => {
         api.createApartment({ ...apt }, buildingId).catch(console.error);
-        setApartments(prev => [...prev, apt]);
+        // DaîreNo'ya göre sırala (küçük numeralı daire öne geçer)
+        setApartments(prev => [...prev, apt].sort((a, b) => a.daireNo - b.daireNo));
         setDues(prev => [...prev, {
             daireNo: apt.daireNo,
             sakinAdi: apt.sakinAdi,
@@ -694,7 +725,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             borc: 0,
             gecikmeCezasi: 0,
             odenecekToplamBorc: 0
-        }]);
+        }].sort((a, b) => a.daireNo - b.daireNo));
 
         addLog("DAIRE_EKLE", `Daire ${apt.daireNo} eklendi — Sakin: ${apt.sakinAdi}`);
 

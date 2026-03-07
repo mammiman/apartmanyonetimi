@@ -535,12 +535,19 @@ export const fetchLedgerEntries = async (month: string, buildingId?: string) => 
     const gelirler: LedgerRow[] = [];
     const giderler: LedgerRow[] = [];
 
-    data.forEach(entry => {
+    data.forEach((entry: any) => {
         const row: any = {
             id: entry.id,
             aciklama: entry.description,
             kisi: entry.person || '',
             tutar: entry.amount,
+            tarih: entry.tarih || '',
+            kategori: entry.kategori || '',
+            displayAciklama: entry.display_aciklama || entry.description,
+            daireNo: entry.daire_no || undefined,
+            sakinAdi: entry.sakin_adi || undefined,
+            ay: entry.ay || month,
+            tip: entry.type === 'income' ? 'gelir' : 'gider',
         };
 
         if (entry.type === 'income') {
@@ -560,12 +567,20 @@ export const createLedgerEntry = async (
     buildingId?: string
 ): Promise<void> => {
     if (!(await waitForDb())) return;
+    const e = entry as any;
     const insertData: any = {
         month,
         type: type === 'gelir' ? 'income' : 'expense',
         description: entry.aciklama,
-        person: (entry as any).kisi || null,
+        person: e.kisi || null,
         amount: entry.tutar,
+        // Extended fields
+        kategori: e.kategori || null,
+        display_aciklama: e.displayAciklama || null,
+        tarih: e.tarih || null,
+        daire_no: e.daireNo || null,
+        sakin_adi: e.sakinAdi || null,
+        ay: e.ay || month,
     };
     if (buildingId) insertData.building_id = buildingId;
 
@@ -576,6 +591,70 @@ export const createLedgerEntry = async (
     if (error) {
         handleDbError(error, 'createLedgerEntry');
         throw error;
+    }
+};
+
+/**
+ * Aidat ödemelerini ledger_entries tablosuna upsert eder.
+ * description = 'aidat_dues_{daireNo}' olarak kullanılır (unique key).
+ */
+export const upsertLedgerAidatEntry = async (
+    month: string,
+    daireNo: number,
+    sakinAdi: string,
+    amount: number,
+    buildingId?: string
+): Promise<void> => {
+    if (!(await waitForDb())) return;
+    const tag = `aidat_dues_${daireNo}`;
+    const displayAciklama = `${sakinAdi} (D:${daireNo}) - ${month} Aidatı`;
+
+    if (amount <= 0) {
+        // Ödeme silinmişse DB'den de sil
+        const { error } = await supabase
+            .from('ledger_entries')
+            .delete()
+            .eq('description', tag)
+            .eq('month', month)
+            .eq('building_id', buildingId || null);
+        if (error) console.warn('upsertLedgerAidatEntry delete error:', error.message);
+        return;
+    }
+
+    // Önce var mı kontrol et
+    let filterQuery = supabase
+        .from('ledger_entries')
+        .select('id')
+        .eq('description', tag)
+        .eq('month', month);
+    if (buildingId) filterQuery = filterQuery.eq('building_id', buildingId);
+    const { data: existing } = await filterQuery.maybeSingle();
+
+    const payload: any = {
+        month,
+        type: 'income',
+        description: tag,
+        amount,
+        kategori: 'Aidat Ödemesi',
+        display_aciklama: displayAciklama,
+        tarih: '',
+        daire_no: daireNo,
+        sakin_adi: sakinAdi,
+        ay: month,
+    };
+    if (buildingId) payload.building_id = buildingId;
+
+    if (existing?.id) {
+        const { error } = await supabase
+            .from('ledger_entries')
+            .update({ amount, display_aciklama: displayAciklama, sakin_adi: sakinAdi })
+            .eq('id', existing.id);
+        if (error) console.warn('upsertLedgerAidatEntry update error:', error.message);
+    } else {
+        const { error } = await supabase
+            .from('ledger_entries')
+            .insert(payload);
+        if (error) console.warn('upsertLedgerAidatEntry insert error:', error.message);
     }
 };
 

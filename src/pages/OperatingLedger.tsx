@@ -680,42 +680,49 @@ const OperatingLedger = () => {
                         </td>
                       </tr>
                     )}
-                    {data.giderler.map((row, idx) => (
-                      <tr key={row.id} className="hover:bg-red-50/50 dark:hover:bg-red-950/10 transition-colors group">
-                        <td className="px-3 py-3 align-middle text-muted-foreground font-mono text-xs">{idx + 1}</td>
-                        <td className="px-3 py-3 align-middle font-medium text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{row.tarih}</td>
-                        <td className="px-3 py-3 align-middle text-sm">{row.aciklama}</td>
-                        <td className="px-3 py-3 align-middle">
-                          <span className="inline-flex items-center rounded-full bg-red-100 dark:bg-red-900/40 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-300 ring-1 ring-red-200 dark:ring-red-800">
-                            {row.kategori}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 align-middle text-right font-bold text-red-600 dark:text-red-400 text-sm tabular-nums">
-                          {formatCurrency(row.tutar)}
-                        </td>
-                        <td className="px-2 py-3 align-middle text-center">
-                          <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                              title="Gider pusulası yazdır"
-                              onClick={() => handlePrintReceipt(row, 'gider')}
-                            >
-                              <Printer className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                              onClick={() => deleteLedgerEntry(selectedMonth, 'gider', row.id)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {data.giderler.map((row, idx) => {
+                      const displayGiderDesc = (row as any).displayAciklama && !(row as any).displayAciklama.startsWith('staff_payment_')
+                        ? (row as any).displayAciklama
+                        : String(row.aciklama).startsWith('staff_payment_')
+                          ? `${String(row.aciklama).replace('staff_payment_', '')} Ayı Personel Ödemesi`
+                          : row.aciklama;
+                      return (
+                        <tr key={row.id} className="hover:bg-red-50/50 dark:hover:bg-red-950/10 transition-colors group">
+                          <td className="px-3 py-3 align-middle text-muted-foreground font-mono text-xs">{idx + 1}</td>
+                          <td className="px-3 py-3 align-middle font-medium text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{row.tarih}</td>
+                          <td className="px-3 py-3 align-middle text-sm">{displayGiderDesc}</td>
+                          <td className="px-3 py-3 align-middle">
+                            <span className="inline-flex items-center rounded-full bg-red-100 dark:bg-red-900/40 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-300 ring-1 ring-red-200 dark:ring-red-800">
+                              {row.kategori}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 align-middle text-right font-bold text-red-600 dark:text-red-400 text-sm tabular-nums">
+                            {formatCurrency(row.tutar)}
+                          </td>
+                          <td className="px-2 py-3 align-middle text-center">
+                            <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                                title="Gider pusulası yazdır"
+                                onClick={() => handlePrintReceipt(row, 'gider')}
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                onClick={() => deleteLedgerEntry(selectedMonth, 'gider', row.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr className="bg-red-50 dark:bg-red-950/20 font-bold border-t-2 border-red-200 dark:border-red-800">
@@ -766,15 +773,27 @@ const OperatingLedger = () => {
                         </td>
                       </tr>
                     )}
-                    {data.gelirler.map((row: any, idx) => {
+                    {data.gelirler.map((row: any, idx: number) => {
                       const isAutoAidat = String(row.aciklama).startsWith('aidat_dues_');
                       const isDevir = String(row.aciklama).startsWith('devir_from_');
                       const isAutoEntry = isAutoAidat || isDevir;
-                      const displayDesc = isAutoAidat
-                        ? (row.displayAciklama || `${row.sakinAdi || ''} Aidat`)
-                        : isDevir
-                          ? (row.displayAciklama || `${String(row.aciklama).replace('devir_from_', '')} devri`)
-                          : row.aciklama;
+
+                      // Önce displayAciklama'yı dene, sonra tag'den türet
+                      let displayDesc: string;
+                      if (row.displayAciklama && !String(row.displayAciklama).startsWith('aidat_dues_') && !String(row.displayAciklama).startsWith('devir_from_')) {
+                        displayDesc = row.displayAciklama;
+                      } else if (isAutoAidat) {
+                        const daireNo = row.daireNo || String(row.aciklama).replace('aidat_dues_', '');
+                        const sakin = row.sakinAdi || apartments.find(a => a.daireNo === Number(daireNo))?.sakinAdi || `Daire ${daireNo}`;
+                        displayDesc = `${sakin} (D:${daireNo}) - ${selectedMonth} Aidatı`;
+                      } else if (isDevir) {
+                        displayDesc = row.displayAciklama || `${String(row.aciklama).replace('devir_from_', '')} ayından devir`;
+                      } else {
+                        displayDesc = row.aciklama;
+                      }
+
+                      const kategoriLabel = row.kategori || (isAutoAidat ? 'Aidat Ödemesi' : isDevir ? 'Devir' : '');
+
                       return (
                         <tr key={row.id} className={`hover:bg-emerald-50/50 dark:hover:bg-emerald-950/10 transition-colors group ${isAutoEntry ? 'bg-emerald-50/20' : ''}`}>
                           <td className="px-3 py-3 align-middle text-muted-foreground font-mono text-xs">{idx + 1}</td>
@@ -789,9 +808,11 @@ const OperatingLedger = () => {
                             )}
                           </td>
                           <td className="px-3 py-3 align-middle">
-                            <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200 dark:ring-emerald-800">
-                              {row.kategori}
-                            </span>
+                            {kategoriLabel && (
+                              <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200 dark:ring-emerald-800">
+                                {kategoriLabel}
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-3 align-middle text-right font-bold text-emerald-600 dark:text-emerald-400 text-sm tabular-nums">
                             {formatCurrency(row.tutar)}
@@ -839,8 +860,8 @@ const OperatingLedger = () => {
             </Card>
           </TabsContent>
         </Tabs>
-      </div>
-    </Layout>
+      </div >
+    </Layout >
   );
 };
 

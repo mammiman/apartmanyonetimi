@@ -343,7 +343,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     }
                     const entries = await api.fetchLedgerEntries(month, buildingId).catch(() => null);
                     if (entries && (entries.gelirler.length > 0 || entries.giderler.length > 0)) {
-                        newLedger[month] = entries;
+                        // displayAciklama eksikse aciklama'dan türet
+                        const fixEntries = (rows: any[]) => rows.map(r => ({
+                            ...r,
+                            displayAciklama: r.displayAciklama && !r.displayAciklama.startsWith('aidat_dues_')
+                                ? r.displayAciklama
+                                : r.aciklama.startsWith('aidat_dues_')
+                                    ? `${r.sakinAdi || 'Daire ' + r.daireNo} (D:${r.daireNo || r.aciklama.replace('aidat_dues_', '')}) - ${month} Aidatı`
+                                    : r.aciklama.startsWith('devir_from_')
+                                        ? `${r.aciklama.replace('devir_from_', '')} ayından devir`
+                                        : r.displayAciklama || r.aciklama,
+                        }));
+                        newLedger[month] = {
+                            gelirler: fixEntries(entries.gelirler),
+                            giderler: fixEntries(entries.giderler),
+                        };
                     }
                 }
                 setLedger(newLedger);
@@ -604,9 +618,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const updateDuesPayment = (daireNo: number, month: string, amount: number) => {
-        api.updateDuesPayment(daireNo, month, amount, year).catch(console.error);
         const apt = apartments.find(a => a.daireNo === daireNo);
-        addLog("AIDAT_ODEME", `${apt?.sakinAdi || daireNo} - ${month}: ${amount} TL`);
+        const sakinAdi = apt?.sakinAdi || String(daireNo);
+        // DB'ye aidat çizelgesi kaydı
+        api.updateDuesPayment(daireNo, month, amount, year).catch(console.error);
+        // DB'ye ledger_entries aidat kaydı (upsert)
+        api.upsertLedgerAidatEntry(month, daireNo, sakinAdi, amount, buildingId !== 'default' ? buildingId : undefined).catch(console.error);
+        addLog("AIDAT_ODEME", `${sakinAdi} - ${month}: ${amount} TL`);
         setDues(prev => prev.map(d => {
             if (d.daireNo === daireNo) {
                 const newPayments = { ...d.odemeler, [month]: amount };

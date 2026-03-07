@@ -73,11 +73,11 @@ const Login = () => {
         setIsLoading(true);
 
         try {
-            await signInWithAccessCode(accessCode);
+            const result = await signInWithAccessCode(accessCode);
             toast.success("Giriş başarılı!");
-            // Tam sayfa yenilemesi gerekli çünkü App bileşeni isResident'ı
-            // sadece mount sırasında kontrol ediyor
-            window.location.href = "/resident";
+            // Hash router kullanıyoruz: /resident yerine /#/resident
+            // residentSession localStorage'a kaydedildi, direkt hash'e yönlendir
+            window.location.href = window.location.origin + '/apartmanyonetimi/#/resident';
         } catch (error: any) {
             toast.error("Geçersiz erişim kodu");
         } finally {

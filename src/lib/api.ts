@@ -81,50 +81,72 @@ const handleDbError = (error: any, context: string) => {
 
 /** Kullanıcının ait olduğu tüm binaları getirir */
 export const fetchUserBuildings = async (): Promise<{ id: string; name: string; access_code: string; role: string }[]> => {
-    if (!(await waitForDb())) return [];
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
+    // Önce auth kontrolü - DB bekleme olmadan
+    try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData?.session?.user) return [];
+        const userId = sessionData.session.user.id;
 
-    const { data, error } = await supabase
-        .from('user_buildings')
-        .select('role, buildings(id, name, access_code)')
-        .eq('user_id', user.id);
+        // DB hazır değilse boş dön (DB'yi kapatma)
+        if (_dbAvailable === false) return [];
 
-    if (error) {
-        console.warn('fetchUserBuildings error:', error.message);
+        // user_buildings tablosundan sadece building_id'leri çek (join YOK)
+        const { data: ubData, error: ubErr } = await supabase
+            .from('user_buildings')
+            .select('building_id, role')
+            .eq('user_id', userId);
+
+        if (ubErr) {
+            // 406 veya diğer hatalar için DB'yi KAPATMA, sadece warn
+            console.warn('fetchUserBuildings user_buildings error:', ubErr.message, ubErr.code);
+            return [];
+        }
+        if (!ubData || ubData.length === 0) return [];
+
+        // Mülk id'lerinden bina bilgilerini çek
+        const buildingIds = ubData.map((r: any) => r.building_id).filter(Boolean);
+        const { data: bData, error: bErr } = await supabase
+            .from('buildings')
+            .select('id, name, access_code')
+            .in('id', buildingIds);
+
+        if (bErr) {
+            console.warn('fetchUserBuildings buildings error:', bErr.message);
+            return [];
+        }
+
+        return (bData || []).map((b: any) => {
+            const ub = ubData.find((u: any) => u.building_id === b.id);
+            return { id: b.id, name: b.name || '?', access_code: b.access_code || '', role: ub?.role || 'admin' };
+        });
+    } catch (e) {
+        console.warn('fetchUserBuildings unexpected error:', e);
         return [];
     }
-    return (data || []).map((row: any) => ({
-        id: row.buildings?.id,
-        name: row.buildings?.name || '?',
-        access_code: row.buildings?.access_code || '',
-        role: row.role,
-    })).filter(b => b.id);
 };
 
-/** Bina koduna göre kullanıcıyı bir binaya ekler (yoksa oluşturur) */
+/** Bina koduna göre kullanıcıyı bir binaya ekler */
 export const addUserToBuilding = async (accessCode: string): Promise<{ id: string; name: string } | null> => {
     if (!(await waitForDb())) return null;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData?.session?.user?.id;
+    if (!userId) return null;
 
-    // Bina kodu ile binayı bul
+    // Bina kodu ile binayi bul
     const { data: building, error: bErr } = await supabase
         .from('buildings')
         .select('id, name')
         .eq('access_code', accessCode.trim().toUpperCase())
-        .single();
+        .maybeSingle();
 
     if (bErr || !building) return null;
 
-    // user_buildings tablosuna ekle (zaten varsa çakışma yoksay)
+    // user_buildings tablosuna ekle (zaten varsa 23505 hatası yoksay)
     const { error: ubErr } = await supabase
         .from('user_buildings')
-        .insert({ user_id: user.id, building_id: building.id, role: 'admin' })
-        .select()
-        .maybeSingle();
+        .insert({ user_id: userId, building_id: building.id, role: 'admin' });
 
-    if (ubErr && ubErr.code !== '23505') { // 23505 = unique violation (zaten var)
+    if (ubErr && ubErr.code !== '23505') {
         console.warn('addUserToBuilding error:', ubErr.message);
         return null;
     }
@@ -341,7 +363,7 @@ export const updateDuesPayment = async (
     if (!duesRecord) {
         const { data: newDues, error: createError } = await supabase
             .from('monthly_dues')
-            .insert({ apartment_id: apt.id, year })
+            .upsert({ apartment_id: apt.id, year }, { onConflict: 'apartment_id,year' })
             .select('id')
             .single();
 
@@ -351,6 +373,7 @@ export const updateDuesPayment = async (
         }
         duesRecord = newDues;
     }
+
 
     // Upsert payment
     const { error: paymentError } = await supabase

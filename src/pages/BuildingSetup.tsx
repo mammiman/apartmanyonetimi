@@ -1,173 +1,279 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Building2, KeyRound, LogOut } from "lucide-react";
+import { Building2, KeyRound, LogOut, PlusCircle, ChevronRight, Check } from "lucide-react";
 import { getCurrentUser, supabase } from "@/lib/supabase";
+import * as api from "@/lib/api";
 import { toast } from "sonner";
+
+interface BuildingInfo {
+    id: string;
+    name: string;
+    access_code: string;
+    role: string;
+}
 
 interface BuildingSetupProps {
     onBuildingSelected: (buildingId: string) => void;
 }
 
 const BuildingSetup = ({ onBuildingSelected }: BuildingSetupProps) => {
-    const navigate = useNavigate();
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
     const [code, setCode] = useState("");
+    const [isJoining, setIsJoining] = useState(false);
+    const [showJoinForm, setShowJoinForm] = useState(false);
+    const [buildings, setBuildings] = useState<BuildingInfo[]>([]);
+    const [userEmail, setUserEmail] = useState("");
 
-    // Check if user is already logged in and has a building
+    // Kullanıcının binalarını yükle
     useEffect(() => {
-        const checkExistingUser = async () => {
+        const load = async () => {
+            setIsLoading(true);
             try {
                 const user = await getCurrentUser();
-                if (user?.profile?.building_id) {
-                    console.log('BuildingSetup - User already has a building assigned:', user.profile.building_id);
-                    onBuildingSelected(user.profile.building_id);
+                if (!user) {
+                    // Oturum yoksa login'e yönlendir
+                    window.location.hash = '#/login';
+                    return;
                 }
-            } catch (error) {
-                console.error('BuildingSetup - Error checking user:', error);
+                setUserEmail(user.email || '');
+
+                // Kullanıcının binalarını çek
+                const userBuildings = await api.fetchUserBuildings();
+
+                if (userBuildings.length === 1) {
+                    // Sadece 1 bina varsa direkt seç
+                    onBuildingSelected(userBuildings[0].id);
+                    return;
+                }
+
+                if (userBuildings.length > 1) {
+                    setBuildings(userBuildings);
+                } else {
+                    // Hiç bina yoksa — eski user.profile.building_id dene
+                    if (user.profile?.building_id) {
+                        onBuildingSelected(user.profile.building_id);
+                        return;
+                    }
+                    // Yeni bina eklemesi için form göster
+                    setShowJoinForm(true);
+                }
+            } catch (e) {
+                console.error('BuildingSetup load error:', e);
+                setShowJoinForm(true);
+            } finally {
+                setIsLoading(false);
             }
         };
-        checkExistingUser();
+        load();
     }, []);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSelectBuilding = (buildingId: string) => {
+        localStorage.setItem("selectedBuildingId", buildingId);
+        onBuildingSelected(buildingId);
+    };
+
+    const handleJoinBuilding = async (e: React.FormEvent) => {
         e.preventDefault();
-
-        if (!code.trim()) {
-            toast.error("Bina kodu gereklidir");
-            return;
-        }
-
-        setIsLoading(true);
+        if (!code.trim() || code.length < 6) return;
+        setIsJoining(true);
         try {
-            // Check if user is already logged in
-            const user = await getCurrentUser();
+            // RPC ile mevcut users.building_id yolu (eski uyumluluk)
+            const { data: newBuildingId, error: rpcError } = await supabase.rpc('join_building_by_code', {
+                p_code: code.trim().toUpperCase()
+            });
 
-            if (user && user.profile?.role === 'admin' && user.profile?.building_id) {
-                // If user already has a building, don't let them join another via code
-                // unless it's the same building
+            // user_buildings tablosuna da ekle (yeni çoklu bina desteği)
+            const building = await api.addUserToBuilding(code.trim());
+
+            if (building) {
+                toast.success(`"${building.name}" binasına eklendi!`);
+                // Listeye ekle
+                const updated = await api.fetchUserBuildings();
+                setBuildings(updated);
+                setShowJoinForm(false);
+                setCode("");
+                if (updated.length === 1) {
+                    handleSelectBuilding(updated[0].id);
+                }
+            } else if (newBuildingId && !rpcError) {
+                toast.success("Apartmana başarıyla kaydedildiniz!");
+                onBuildingSelected(newBuildingId);
+            } else {
+                // Geçersiz kod dene
                 const { data: bData } = await supabase
                     .from('buildings')
-                    .select('id')
+                    .select('id, name')
                     .eq('access_code', code.trim().toUpperCase())
                     .single();
-
-                if (bData && bData.id === user.profile.building_id) {
-                    onBuildingSelected(user.profile.building_id);
-                    return;
+                if (bData) {
+                    toast.success(`"${bData.name}" binasına bağlanıldı!`);
+                    handleSelectBuilding(bData.id);
                 } else {
-                    toast.error("Zaten bir apartmana bağlısınız. Başka bir apartmana bağlanamazsınız.");
-                    return;
+                    toast.error("Geçersiz bina kodu. Lütfen kontrol edip tekrar deneyin.");
                 }
             }
-
-            // If user is logged in but has no building, use RPC to join officially in DB
-            if (user) {
-                const { data: newBuildingId, error: rpcError } = await supabase.rpc('join_building_by_code', {
-                    p_code: code.trim().toUpperCase()
-                });
-
-                if (rpcError) {
-                    toast.error("Bina koduna katılılamadı: " + rpcError.message);
-                    return;
-                }
-
-                if (newBuildingId) {
-                    toast.success("Apartmana başarıyla kaydedildiniz!");
-                    onBuildingSelected(newBuildingId);
-                    return;
-                }
-            }
-
-            // Fallback/Guest check (legacy logic or for residents before login)
-            const { data, error } = await supabase
-                .from('buildings')
-                .select('id, name')
-                .eq('access_code', code.trim().toUpperCase())
-                .single();
-
-            if (error || !data) {
-                toast.error("Geçersiz bina kodu");
-                return;
-            }
-
-            toast.success(`"${data.name}" binasına bağlanıldı!`);
-            onBuildingSelected(data.id);
         } catch (error: any) {
             toast.error(error.message || "Geçersiz bina kodu");
         } finally {
-            setIsLoading(false);
+            setIsJoining(false);
         }
     };
+
+    const handleLogout = async () => {
+        localStorage.removeItem('selectedBuildingId');
+        await supabase.auth.signOut();
+        window.location.hash = '#/login';
+    };
+
+    if (isLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
+                    <p className="text-sm text-slate-500">Binalar yükleniyor...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
             <div className="w-full max-w-md">
+                {/* Header */}
                 <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white shadow-lg mb-4">
+                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white shadow-lg mb-4 ring-4 ring-primary/10">
                         <Building2 className="w-10 h-10 text-primary" />
                     </div>
                     <h1 className="text-3xl font-bold text-slate-900">Apartman Yönetim</h1>
-                    <p className="text-slate-600 mt-2">
-                        Sisteme bağlanmak için bina kodunuzu girin
-                    </p>
+                    {userEmail && (
+                        <p className="text-sm text-slate-500 mt-1">
+                            <span className="font-medium text-slate-700">{userEmail}</span> olarak giriş yapıldı
+                        </p>
+                    )}
                 </div>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <KeyRound className="w-5 h-5" />
-                            Bina Kodu
-                        </CardTitle>
-                        <CardDescription>
-                            Yöneticinizden aldığınız 6 haneli kodu girin.
-                        </CardDescription>
-                    </CardHeader>
-                    <form onSubmit={handleSubmit}>
-                        <CardContent>
-                            <div className="space-y-2">
-                                <Label htmlFor="buildingCode">Kod</Label>
-                                <Input
-                                    id="buildingCode"
-                                    type="text"
-                                    placeholder="Örn: ABC123"
-                                    value={code}
-                                    onChange={(e) => setCode(e.target.value.toUpperCase())}
-                                    maxLength={6}
-                                    className="text-center text-2xl tracking-[0.3em] font-mono uppercase"
-                                    required
-                                />
-                            </div>
+                {/* Bina Listesi */}
+                {buildings.length > 0 && (
+                    <Card className="mb-4 shadow-md">
+                        <CardHeader className="pb-3">
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <Building2 className="w-4 h-4 text-primary" />
+                                Binalarınız
+                            </CardTitle>
+                            <CardDescription>Yönetmek istediğiniz binayı seçin</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-2 pb-4">
+                            {buildings.map((b) => (
+                                <button
+                                    key={b.id}
+                                    onClick={() => handleSelectBuilding(b.id)}
+                                    className="w-full flex items-center justify-between gap-3 p-3 rounded-xl border-2 border-slate-100 hover:border-primary/50 hover:bg-primary/5 transition-all group text-left"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                                            <Building2 className="w-5 h-5 text-primary" />
+                                        </div>
+                                        <div>
+                                            <p className="font-semibold text-slate-800 text-sm">{b.name}</p>
+                                            <p className="text-xs text-slate-400 font-mono">Kod: {b.access_code}</p>
+                                        </div>
+                                    </div>
+                                    <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-primary transition-colors shrink-0" />
+                                </button>
+                            ))}
                         </CardContent>
-                        <CardFooter>
-                            <Button
-                                type="submit"
-                                className="w-full"
-                                disabled={isLoading || code.length < 6}
+                        <div className="px-6 pb-4">
+                            <button
+                                onClick={() => setShowJoinForm(!showJoinForm)}
+                                className="flex items-center gap-2 text-sm text-primary hover:underline font-medium"
                             >
-                                {isLoading ? "Doğrulanıyor..." : "Giriş Yap"}
-                            </Button>
-                        </CardFooter>
-                    </form>
-                </Card>
+                                <PlusCircle className="w-4 h-4" />
+                                {showJoinForm ? 'Formu Kapat' : 'Yeni Bina Ekle'}
+                            </button>
+                        </div>
+                    </Card>
+                )}
 
-                <div className="mt-6 flex flex-col gap-4">
-                    <p className="text-center text-xs text-muted-foreground">
-                        Bina kodunuzu yöneticinizden talep edebilirsiniz.
-                    </p>
-                    <div className="flex justify-center">
-                        <Button
-                            variant="link"
-                            className="text-primary font-semibold flex items-center gap-1"
-                            onClick={() => navigate("/login")}
-                        >
-                            <LogOut className="w-4 h-4 rotate-180" />
-                            Zaten Hesabım Var / Giriş Yap
-                        </Button>
-                    </div>
+                {/* Bina Ekleme Formu */}
+                {(showJoinForm || buildings.length === 0) && (
+                    <Card className="shadow-md">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <KeyRound className="w-5 h-5" />
+                                {buildings.length === 0 ? 'Binaya Bağlan' : 'Yeni Bina Ekle'}
+                            </CardTitle>
+                            <CardDescription>
+                                {buildings.length === 0
+                                    ? 'Sisteme bağlanmak için bina kodunuzu girin'
+                                    : 'Bina kodunu girerek başka bir binayı da yönetebilirsiniz'}
+                            </CardDescription>
+                        </CardHeader>
+                        <form onSubmit={handleJoinBuilding}>
+                            <CardContent>
+                                <div className="space-y-2">
+                                    <Label htmlFor="buildingCode">Bina Kodu</Label>
+                                    <Input
+                                        id="buildingCode"
+                                        type="text"
+                                        placeholder="Örn: ABC123"
+                                        value={code}
+                                        onChange={(e) => setCode(e.target.value.toUpperCase())}
+                                        maxLength={6}
+                                        className="text-center text-2xl tracking-[0.3em] font-mono uppercase"
+                                        required
+                                    />
+                                    <p className="text-xs text-muted-foreground text-center">
+                                        Bina kodunuzu yöneticinizden talep edebilirsiniz
+                                    </p>
+                                </div>
+                            </CardContent>
+                            <CardFooter className="flex gap-2">
+                                {buildings.length > 0 && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="flex-1"
+                                        onClick={() => setShowJoinForm(false)}
+                                    >
+                                        İptal
+                                    </Button>
+                                )}
+                                <Button
+                                    type="submit"
+                                    className="flex-1 gap-2"
+                                    disabled={isJoining || code.length < 6}
+                                >
+                                    {isJoining ? (
+                                        <>
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                                            Doğrulanıyor...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Check className="w-4 h-4" />
+                                            {buildings.length === 0 ? 'Bağlan' : 'Ekle'}
+                                        </>
+                                    )}
+                                </Button>
+                            </CardFooter>
+                        </form>
+                    </Card>
+                )}
+
+                {/* Çıkış */}
+                <div className="mt-4 flex justify-center">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-slate-400 hover:text-red-600 gap-2"
+                        onClick={handleLogout}
+                    >
+                        <LogOut className="w-4 h-4" />
+                        Çıkış Yap
+                    </Button>
                 </div>
             </div>
         </div>

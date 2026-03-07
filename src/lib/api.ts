@@ -77,6 +77,63 @@ const handleDbError = (error: any, context: string) => {
     return error;
 };
 
+// ===== Çoklu Bina API =====
+
+/** Kullanıcının ait olduğu tüm binaları getirir */
+export const fetchUserBuildings = async (): Promise<{ id: string; name: string; access_code: string; role: string }[]> => {
+    if (!(await waitForDb())) return [];
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+        .from('user_buildings')
+        .select('role, buildings(id, name, access_code)')
+        .eq('user_id', user.id);
+
+    if (error) {
+        console.warn('fetchUserBuildings error:', error.message);
+        return [];
+    }
+    return (data || []).map((row: any) => ({
+        id: row.buildings?.id,
+        name: row.buildings?.name || '?',
+        access_code: row.buildings?.access_code || '',
+        role: row.role,
+    })).filter(b => b.id);
+};
+
+/** Bina koduna göre kullanıcıyı bir binaya ekler (yoksa oluşturur) */
+export const addUserToBuilding = async (accessCode: string): Promise<{ id: string; name: string } | null> => {
+    if (!(await waitForDb())) return null;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    // Bina kodu ile binayı bul
+    const { data: building, error: bErr } = await supabase
+        .from('buildings')
+        .select('id, name')
+        .eq('access_code', accessCode.trim().toUpperCase())
+        .single();
+
+    if (bErr || !building) return null;
+
+    // user_buildings tablosuna ekle (zaten varsa çakışma yoksay)
+    const { error: ubErr } = await supabase
+        .from('user_buildings')
+        .insert({ user_id: user.id, building_id: building.id, role: 'admin' })
+        .select()
+        .maybeSingle();
+
+    if (ubErr && ubErr.code !== '23505') { // 23505 = unique violation (zaten var)
+        console.warn('addUserToBuilding error:', ubErr.message);
+        return null;
+    }
+
+    return building;
+};
+
+
+
 // Type definitions for database entities
 export interface DbApartment {
     id: number;

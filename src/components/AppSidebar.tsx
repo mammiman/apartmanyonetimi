@@ -11,9 +11,11 @@ import {
   ChevronRight,
   Building,
   X,
+  ArrowLeftRight,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { signOut } from "@/lib/supabase";
+import * as api from "@/lib/api";
 import { toast } from "sonner";
 
 const navItems = [
@@ -33,9 +35,17 @@ interface AppSidebarProps {
 
 export function AppSidebar({ mobileOpen = false, onMobileClose }: AppSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [userBuildingCount, setUserBuildingCount] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const { apartmentName } = useData();
+
+  // Kullanıcının kaç binası olduğunu öğren
+  useEffect(() => {
+    api.fetchUserBuildings().then(buildings => {
+      setUserBuildingCount(buildings.length);
+    }).catch(() => { });
+  }, []);
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -50,6 +60,12 @@ export function AppSidebar({ mobileOpen = false, onMobileClose }: AppSidebarProp
     } catch (error) {
       toast.error("Çıkış yapılırken hata oluştu");
     }
+  };
+
+  const handleSwitchBuilding = () => {
+    // selectedBuildingId'yi temizle → BuildingSetup gösterilsin
+    localStorage.removeItem("selectedBuildingId");
+    window.location.reload();
   };
 
   return (
@@ -122,6 +138,21 @@ export function AppSidebar({ mobileOpen = false, onMobileClose }: AppSidebarProp
 
         {/* Footer - Logout and Collapse — sticky at bottom */}
         <div className="border-t border-sidebar-border px-3 py-3 space-y-1 shrink-0">
+
+          {/* Bina Değiştir — sadece birden fazla bina varsa göster */}
+          {userBuildingCount > 1 && (
+            <button
+              onClick={handleSwitchBuilding}
+              title="Bina Değiştir"
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/70 hover:bg-blue-500/10 hover:text-blue-600 transition-colors"
+            >
+              <ArrowLeftRight className="h-5 w-5 shrink-0" />
+              {!collapsed && (
+                <span className="truncate">Bina Değiştir</span>
+              )}
+            </button>
+          )}
+
           {/* Logout Button */}
           <button
             onClick={handleLogout}

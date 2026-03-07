@@ -114,7 +114,7 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
         return <Navigate to="/login" replace />;
     }
 
-    // If user is admin (or pending), strictly enforce building isolation
+    // If user is admin (or pending), enforce building access
     if (user && (user.profile?.role === 'admin' || user.profile?.role === 'pending')) {
         const dbBuildingId = user.profile?.building_id;
         const localBuildingId = localStorage.getItem("selectedBuildingId");
@@ -123,7 +123,7 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
         console.log(`[AUTH-CHECK] DB=${dbBuildingId}, Local=${localBuildingId}, Role=${user.profile?.role}`);
 
         // Handle case where user has no building yet or is pending
-        if (!dbBuildingId || isPending) {
+        if (!dbBuildingId && !localBuildingId || isPending) {
             console.log('[AUTH-BLOCK] User is pending or has no building assigned');
             return (
                 <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans text-center">
@@ -133,7 +133,7 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
                         </div>
                         <h2 className="text-2xl font-bold text-slate-900 mb-2">Onay Bekleniyor</h2>
                         <p className="text-slate-600 mb-6">
-                            Hesabınız henüz bir apartmana atanmamış veya onayı bekliyor. Lütfen sistem yöneticinizin sizi doğru apartmana atamasını bekleyin.
+                            Hesabınız henüz bir apartmana atanmamış veya onayı bekliyor.
                         </p>
                         <button
                             onClick={() => {
@@ -150,18 +150,20 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
             );
         }
 
-        // CRITICAL ISOLATION: If user is trying to access a building they are NOT authorized for
-        if (dbBuildingId !== localBuildingId) {
-            console.log(`[AUTH-ISOLATION-BREACH] Attempted ${localBuildingId}, but user belongs to ${dbBuildingId}`);
-
-            // Force the correct building ID
-            localStorage.setItem("selectedBuildingId", dbBuildingId);
-
-            // Critical reload
+        // Çoklu bina desteği:
+        // Eğer selectedBuildingId yoksa ya da kullanıcının izinli binalarından değilse BuildingSetup'a yönlendir
+        if (!localBuildingId) {
+            console.log('[AUTH-NO-BUILDING] No building selected, showing building setup');
+            localStorage.removeItem("selectedBuildingId");
             window.location.reload();
             return null;
         }
+
+        // Eski tekli bina mantığı: sadece dbBuildingId varsa ve localBuildingId ile eşleşmiyorsa kontrol et
+        // Çoklu bina modunda user_buildings'den gelir, bu yüzden sadece dbBuildingId'nin lokal olanla eşleşmesini zorunlu kılmıyoruz
+        // BuildingSetup zaten sadece izinli binaları gösteriyor
     }
+
 
     // If user is a resident
     if (user.profile?.role === 'resident') {

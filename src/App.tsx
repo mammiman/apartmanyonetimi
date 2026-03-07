@@ -61,9 +61,14 @@ const App = () => {
     );
   }
 
-  // Kullanıcı auth olmuşsa (ama selectedBuildingId yoksa) BuildingSetup'ı atla:
-  // ProtectedRoute db'den building_id alıp localStorage'a set edecek
-  const showBuildingSetup = !buildingId && !isResident && !isAuthenticated;
+  // BuildingSetup göster:
+  // - Giriş yapmamış + resident değil (kod girmesi gerekiyor)
+  // - VEYA: Giriş yapmış (admin) ama henüz bina seçilmemiş (çoklu bina senaryosu)
+  const showBuildingSetup = !isResident && (
+    (!buildingId && !isAuthenticated) ||  // Giriş yapmamış
+    (!buildingId && isAuthenticated)      // Giriş yapmış ama bina seçilmemiş
+  );
+
 
   return (
     <QueryClientProvider client={queryClient}>

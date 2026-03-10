@@ -23,7 +23,18 @@ interface NewEntryForm {
 const MONTHS_TR = ['OCAK', 'ŞUBAT', 'MART', 'NİSAN', 'MAYIS', 'HAZİRAN', 'TEMMUZ', 'AĞUSTOS', 'EYLÜL', 'EKİM', 'KASIM', 'ARALIK'];
 
 const OperatingLedger = () => {
-  const { ledger, addLedgerEntry, deleteLedgerEntry, year, apartments, apartmentName, updateDuesPayment, dues } = useData();
+  const { ledger, addLedgerEntry, deleteLedgerEntry, year, apartments, apartmentName, updateDuesPayment, dues, isLoading } = useData();
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+          <div className="w-12 h-12 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-muted-foreground animate-pulse">İşletme defteri yükleniyor...</p>
+        </div>
+      </Layout>
+    );
+  }
 
   // Varsayılan ay = gerçek günün ayı
   const currentRealMonth = MONTHS_TR[new Date().getMonth()];

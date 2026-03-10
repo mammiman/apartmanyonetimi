@@ -3,28 +3,49 @@ import { MONTHS, formatCurrency, formatNumber } from "@/data/initialData";
 import { User, Banknote, Shield, Clock, Download, Pencil, Save, X } from "lucide-react";
 import { exportToCSV } from "@/lib/exportUtils";
 import { useData } from "@/context/DataContext";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 const Staff = () => {
-  const { staffRecords, updateStaffRecord, year, staffName, staffRole, updateStaffInfo } = useData();
+  const { staffRecords, updateStaffRecord, year, staffName, staffRole, updateStaffInfo, isLoading } = useData();
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(staffName);
   const [tempRole, setTempRole] = useState(staffRole);
+  const [localRecords, setLocalRecords] = useState(staffRecords);
 
-  const totalMaas = staffRecords.reduce((s, r) => s + r.maas, 0);
-  const totalMesai = staffRecords.reduce((s, r) => s + r.mesai, 0);
-  const totalOdenen = staffRecords.reduce((s, r) => s + r.toplamOdenen, 0);
+  // Sync local records when staffRecords from context change (e.g. after load)
+  useEffect(() => {
+    if (!isEditing) {
+      setLocalRecords(staffRecords);
+      setTempName(staffName);
+      setTempRole(staffRole);
+    }
+  }, [staffRecords, staffName, staffRole, isEditing]);
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-muted-foreground animate-pulse">Personel verileri yükleniyor...</p>
+        </div>
+      </Layout>
+    );
+  }
+
+  const totalMaas = localRecords.reduce((s, r) => s + r.maas, 0);
+  const totalMesai = localRecords.reduce((s, r) => s + r.mesai, 0);
+  const totalOdenen = localRecords.reduce((s, r) => s + r.toplamOdenen, 0);
   const monthlyTazminat = 500;
-  const activemonths = staffRecords.filter((r) => r.maas > 0).length;
+  const activemonths = localRecords.filter((r) => r.maas > 0).length;
   const toplamTazminat = activemonths * monthlyTazminat;
 
   const handleExport = () => {
     const headers = ['Ay', 'Maaş', 'Mesai', 'Ödenen', 'Avans', 'Alacak', 'Toplam Ödenen', 'Tazminat'];
-    const rows = staffRecords.map((r) => [
+    const rows = localRecords.map((r) => [
       r.ay,
       r.maas,
       r.mesai,
@@ -34,22 +55,40 @@ const Staff = () => {
       r.toplamOdenen,
       r.maas > 0 ? monthlyTazminat : 0,
     ]);
-    rows.push(['TOPLAM', totalMaas, totalMesai, staffRecords.reduce((s, r) => s + r.odenen, 0), staffRecords.reduce((s, r) => s + r.avans, 0), staffRecords.reduce((s, r) => s + r.alacak, 0), totalOdenen, toplamTazminat]);
+    rows.push(['TOPLAM', totalMaas, totalMesai, localRecords.reduce((s, r) => s + r.odenen, 0), localRecords.reduce((s, r) => s + r.avans, 0), localRecords.reduce((s, r) => s + r.alacak, 0), totalOdenen, toplamTazminat]);
     exportToCSV(`${tempName}_Bordro_${year}`, headers, rows);
   };
 
   const toggleEdit = () => {
     if (isEditing) {
+      // Save everything
       updateStaffInfo(tempName, tempRole);
+
+      // Update all records that changed
+      localRecords.forEach((record, idx) => {
+        const original = staffRecords[idx];
+        if (JSON.stringify(record) !== JSON.stringify(original)) {
+          updateStaffRecord(record.ay, {
+            maas: record.maas,
+            mesai: record.mesai,
+            odenen: record.odenen,
+            avans: record.avans,
+            alacak: record.alacak,
+            toplamOdenen: record.toplamOdenen
+          });
+        }
+      });
       toast.success("Değişiklikler kaydedildi.");
     }
     setIsEditing(!isEditing);
   }
 
-  // Helper to update specific field
-  const updateField = (ay: string, field: string, val: string) => {
+  // Helper to update specific field in local state
+  const updateLocalField = (ay: string, field: string, val: string) => {
     const numVal = parseFloat(val) || 0;
-    updateStaffRecord(ay, { [field]: numVal });
+    setLocalRecords(prev => prev.map(r =>
+      r.ay === ay ? { ...r, [field]: numVal } : r
+    ));
   }
 
   return (
@@ -66,10 +105,10 @@ const Staff = () => {
             <Button
               onClick={toggleEdit}
               variant={isEditing ? "default" : "outline"}
-              className="gap-2"
+              className={`gap-2 ${isEditing ? 'bg-green-600 hover:bg-green-700 text-white' : ''}`}
             >
               {isEditing ? <Save className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
-              {isEditing ? "Bitti" : "Düzenle"}
+              {isEditing ? "Kaydet ve Bitir" : "Düzenle"}
             </Button>
             <button
               onClick={handleExport}
@@ -90,23 +129,27 @@ const Staff = () => {
             <div className="flex-1 w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1 flex-1">
                 {isEditing ? (
-                  <div className="space-y-2 max-w-md">
-                    <Label htmlFor="staffName" className="text-primary-foreground/80">Personel Adı Soyadı</Label>
-                    <Input
-                      id="staffName"
-                      value={tempName}
-                      onChange={(e) => setTempName(e.target.value)}
-                      className="bg-white/10 border-white/20 text-white placeholder:text-white/50"
-                      placeholder="İsim Soyisim"
-                    />
-                    <Label htmlFor="staffRole" className="text-primary-foreground/80">Görevi</Label>
-                    <Input
-                      id="staffRole"
-                      value={tempRole}
-                      onChange={(e) => setTempRole(e.target.value)}
-                      className="bg-white/10 border-white/20 text-white placeholder:text-white/50"
-                      placeholder="Örn: Apartman Görevlisi"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                    <div className="space-y-1">
+                      <Label htmlFor="staffName" className="text-primary-foreground/80 text-xs">Personel Adı Soyadı</Label>
+                      <Input
+                        id="staffName"
+                        value={tempName}
+                        onChange={(e) => setTempName(e.target.value)}
+                        className="bg-white/10 border-white/20 text-white placeholder:text-white/50 h-9"
+                        placeholder="İsim Soyisim"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="staffRole" className="text-primary-foreground/80 text-xs">Görevi</Label>
+                      <Input
+                        id="staffRole"
+                        value={tempRole}
+                        onChange={(e) => setTempRole(e.target.value)}
+                        className="bg-white/10 border-white/20 text-white placeholder:text-white/50 h-9"
+                        placeholder="Örn: Apartman Görevlisi"
+                      />
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -172,11 +215,11 @@ const Staff = () => {
               </tr>
             </thead>
             <tbody>
-              {staffRecords.map((row, i) => {
+              {localRecords.map((row, i) => {
                 const isActive = row.maas > 0;
 
                 return (
-                  <tr key={row.ay} className={!isActive && !isEditing ? "opacity-40" : ""}>
+                  <tr key={row.ay} className={!isActive && !isEditing ? "opacity-40 hover:opacity-100 transition-opacity" : "hover:bg-muted/30"}>
                     <td className="font-medium">{row.ay}</td>
 
                     {/* Maaş */}
@@ -185,7 +228,7 @@ const Staff = () => {
                         <Input
                           type="number"
                           value={row.maas}
-                          onChange={(e) => updateField(row.ay, 'maas', e.target.value)}
+                          onChange={(e) => updateLocalField(row.ay, 'maas', e.target.value)}
                           className="h-8 w-20 ml-auto text-right text-xs"
                         />
                       ) : formatNumber(row.maas)}
@@ -197,7 +240,7 @@ const Staff = () => {
                         <Input
                           type="number"
                           value={row.mesai}
-                          onChange={(e) => updateField(row.ay, 'mesai', e.target.value)}
+                          onChange={(e) => updateLocalField(row.ay, 'mesai', e.target.value)}
                           className="h-8 w-20 ml-auto text-right text-xs"
                         />
                       ) : formatNumber(row.mesai)}
@@ -209,7 +252,7 @@ const Staff = () => {
                         <Input
                           type="number"
                           value={row.odenen}
-                          onChange={(e) => updateField(row.ay, 'odenen', e.target.value)}
+                          onChange={(e) => updateLocalField(row.ay, 'odenen', e.target.value)}
                           className="h-8 w-20 ml-auto text-right text-xs"
                         />
                       ) : formatNumber(row.odenen)}
@@ -221,7 +264,7 @@ const Staff = () => {
                         <Input
                           type="number"
                           value={row.avans}
-                          onChange={(e) => updateField(row.ay, 'avans', e.target.value)}
+                          onChange={(e) => updateLocalField(row.ay, 'avans', e.target.value)}
                           className="h-8 w-20 ml-auto text-right text-xs"
                         />
                       ) : formatNumber(row.avans)}
@@ -233,7 +276,7 @@ const Staff = () => {
                         <Input
                           type="number"
                           value={row.alacak}
-                          onChange={(e) => updateField(row.ay, 'alacak', e.target.value)}
+                          onChange={(e) => updateLocalField(row.ay, 'alacak', e.target.value)}
                           className="h-8 w-20 ml-auto text-right text-xs"
                         />
                       ) : formatNumber(row.alacak)}
@@ -245,18 +288,20 @@ const Staff = () => {
                         <Input
                           type="number"
                           value={row.toplamOdenen}
-                          onChange={(e) => updateField(row.ay, 'toplamOdenen', e.target.value)}
+                          onChange={(e) => updateLocalField(row.ay, 'toplamOdenen', e.target.value)}
                           className="h-8 w-24 ml-auto text-right font-bold text-xs"
                         />
                       ) : formatNumber(row.toplamOdenen)}
                     </td>
 
                     <td className="text-right text-muted-foreground p-1">
-                      {isActive || isEditing ? formatNumber(monthlyTazminat) : "—"}
+                      {isActive || (isEditing && row.maas > 0) ? formatNumber(monthlyTazminat) : "—"}
                     </td>
                     <td className="p-1">
                       {isActive && row.toplamOdenen > 0 ? (
                         <span className="status-paid">Ödendi</span>
+                      ) : isActive ? (
+                        <span className="text-xs text-orange-600 font-medium">Bekliyor</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
@@ -270,15 +315,18 @@ const Staff = () => {
                 <td>TOPLAM</td>
                 <td className="text-right">{formatNumber(totalMaas)}</td>
                 <td className="text-right">{formatNumber(totalMesai)}</td>
-                <td className="text-right">{formatNumber(staffRecords.reduce((s, r) => s + r.odenen, 0))}</td>
-                <td className="text-right">{formatNumber(staffRecords.reduce((s, r) => s + r.avans, 0))}</td>
-                <td className="text-right">{formatNumber(staffRecords.reduce((s, r) => s + r.alacak, 0))}</td>
+                <td className="text-right">{formatNumber(localRecords.reduce((s, r) => s + r.odenen, 0))}</td>
+                <td className="text-right">{formatNumber(localRecords.reduce((s, r) => s + r.avans, 0))}</td>
+                <td className="text-right">{formatNumber(localRecords.reduce((s, r) => s + r.alacak, 0))}</td>
                 <td className="text-right">{formatNumber(totalOdenen)}</td>
                 <td className="text-right">{formatNumber(toplamTazminat)}</td>
                 <td />
               </tr>
             </tfoot>
           </table>
+          <p className="text-[10px] text-muted-foreground mt-4 italic">
+            * Personel 'Toplam Ödenen' sütunu güncellendiğinde işletme defterine otomatik gider kaydı olarak işlenir.
+          </p>
         </div>
       </div>
     </Layout>

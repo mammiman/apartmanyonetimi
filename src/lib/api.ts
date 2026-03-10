@@ -640,6 +640,59 @@ export const fetchLedgerEntries = async (month: string, buildingId?: string) => 
     return { gelirler, giderler };
 };
 
+/**
+ * Tüm ayların ledger kayıtlarını TEK sorguda çeker.
+ * 12 ayrı HTTP isteği yerine 1 istek → çok daha hızlı yükleme.
+ */
+export const fetchAllLedgerEntries = async (buildingId?: string): Promise<Record<string, { gelirler: LedgerRow[]; giderler: LedgerRow[] }>> => {
+    if (!(await waitForDb())) return {};
+
+    let query = supabase
+        .from('ledger_entries')
+        .select('*')
+        .order('created_at');
+
+    if (buildingId) query = query.eq('building_id', buildingId);
+
+    const { data, error } = await query;
+
+    if (error) {
+        handleDbError(error, 'fetchAllLedgerEntries');
+        throw error;
+    }
+
+    const result: Record<string, { gelirler: LedgerRow[]; giderler: LedgerRow[] }> = {};
+
+    (data || []).forEach((entry: any) => {
+        const month = entry.month;
+        if (!result[month]) {
+            result[month] = { gelirler: [], giderler: [] };
+        }
+
+        const row: any = {
+            id: entry.id,
+            aciklama: entry.description,
+            kisi: entry.person || '',
+            tutar: entry.amount,
+            tarih: entry.tarih || '',
+            kategori: entry.kategori || '',
+            displayAciklama: entry.display_aciklama || entry.description,
+            daireNo: entry.daire_no || undefined,
+            sakinAdi: entry.sakin_adi || undefined,
+            ay: entry.ay || month,
+            tip: entry.type === 'income' ? 'gelir' : 'gider',
+        };
+
+        if (entry.type === 'income') {
+            result[month].gelirler.push(row);
+        } else {
+            result[month].giderler.push(row);
+        }
+    });
+
+    return result;
+};
+
 export const createLedgerEntry = async (
     month: string,
     type: 'gelir' | 'gider',

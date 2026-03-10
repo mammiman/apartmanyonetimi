@@ -15,7 +15,29 @@ import { AccessCodeGenerator } from "@/components/AccessCodeGenerator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const Apartments = () => {
-  const { apartments, updateApartment, addApartment, deleteApartment, updateDuesPayment, updateElevatorPayment, duesColumns, updateExtraFee, apartmentName } = useData();
+  const {
+    apartments,
+    updateApartment,
+    addApartment,
+    deleteApartment,
+    updateDuesPayment,
+    updateElevatorPayment,
+    duesColumns,
+    updateExtraFee,
+    apartmentName,
+    isLoading
+  } = useData();
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-muted-foreground animate-pulse">Daire listesi yükleniyor...</p>
+        </div>
+      </Layout>
+    );
+  }
   const [editingApt, setEditingApt] = useState<Apartment | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newApt, setNewApt] = useState<Apartment>({

@@ -41,7 +41,19 @@ const DuesSchedule = () => {
     updateAnnualElevatorFee,
     updateDevir,
     importDuesData,
+    isLoading,
   } = useData();
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-muted-foreground animate-pulse">Aidat çizelgesi yükleniyor...</p>
+        </div>
+      </Layout>
+    );
+  }
 
   const [isEditing, setIsEditing] = useState(false);
   const [newColumnName, setNewColumnName] = useState("");

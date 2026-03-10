@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
     Building2, Calendar, Download, LogOut, AlertCircle,
-    CheckCircle2, ShieldAlert, TrendingDown, ChevronDown, ChevronUp, Eye
+    CheckCircle2, ShieldAlert, TrendingDown, ChevronDown, ChevronUp, Eye, RefreshCw
 } from "lucide-react";
 import { MONTHS, formatCurrency, formatNumber } from "@/data/initialData";
 import { useNavigate } from "react-router-dom";
@@ -14,8 +14,16 @@ import { useState } from "react";
 const MONTHS_TR = ['OCAK', 'ŞUBAT', 'MART', 'NİSAN', 'MAYIS', 'HAZİRAN', 'TEMMUZ', 'AĞUSTOS', 'EYLÜL', 'EKİM', 'KASIM', 'ARALIK'];
 
 const ResidentDashboard = () => {
-    const { dues, apartments, monthlyDuesAmount, expenseItems, annualElevatorFee, ledger, year } = useData();
+    const { dues, apartments, monthlyDuesAmount, expenseItems, annualElevatorFee, ledger, year, refreshData } = useData();
+    const [isManualRefreshing, setIsManualRefreshing] = useState(false);
     const navigate = useNavigate();
+
+    const handleRefresh = async () => {
+        setIsManualRefreshing(true);
+        await refreshData(true);
+        setIsManualRefreshing(false);
+        toast.success("Veriler güncellendi");
+    };
 
     const [showDuesTable, setShowDuesTable] = useState(false);
     const [showExpenseTable, setShowExpenseTable] = useState(false);
@@ -112,15 +120,15 @@ const ResidentDashboard = () => {
     const hasIcraRisk = maxConsecutive >= 3 && !isManager;
     const currentMonthPaid = (myDues.odemeler?.[currentMonthName] || 0) >= monthlyDuesAmount;
 
-    // İşletme defterinden gerçek giderler (kategori hariç)
-    const allLedgerExpenses: { ay: string; aciklama: string; tutar: number; tarih: string }[] = [];
+    // İşletme defterinden gerçek giderler (kategori dahil)
+    const allLedgerExpenses: { ay: string; aciklama: string; kategori: string; tutar: number; tarih: string }[] = [];
     MONTHS_TR.forEach(month => {
         (ledger[month]?.giderler || []).forEach(g => {
             let desc = g.displayAciklama || g.aciklama;
             if (String(desc).startsWith('devir_from_')) {
                 desc = `${String(desc).replace('devir_from_', '')} ayından devir`;
             }
-            allLedgerExpenses.push({ ay: month, aciklama: desc, tutar: g.tutar, tarih: g.tarih || '' });
+            allLedgerExpenses.push({ ay: month, aciklama: desc, kategori: g.kategori || '', tutar: g.tutar, tarih: g.tarih || '' });
         });
     });
     const totalLedgerExpense = allLedgerExpenses.reduce((s, g) => s + g.tutar, 0);
@@ -219,6 +227,16 @@ const ResidentDashboard = () => {
                         </div>
                     </div>
                     <div className="flex gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={handleRefresh}
+                            disabled={isManualRefreshing}
+                            size="sm"
+                            className="gap-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+                        >
+                            <RefreshCw className={`w-4 h-4 ${isManualRefreshing ? 'animate-spin' : ''}`} />
+                            {isManualRefreshing ? 'Yenileniyor...' : 'Yenile'}
+                        </Button>
                         <Button variant="outline" onClick={handleExport} size="sm" className="gap-2">
                             <Download className="w-4 h-4" /> Ekstre
                         </Button>
@@ -386,11 +404,13 @@ const ResidentDashboard = () => {
                             </div>
 
                             {allLedgerExpenses.length > 0 ? (
-                                <div className="overflow-x-auto max-h-72">
+                                <div className="overflow-x-auto max-h-96">
                                     <table className="w-full text-xs">
                                         <thead className="bg-slate-50 dark:bg-slate-800 sticky top-0 border-b">
                                             <tr>
                                                 <th className="px-3 py-2 text-left font-semibold text-gray-500">Ay</th>
+                                                <th className="px-3 py-2 text-left font-semibold text-gray-500">Tarih</th>
+                                                <th className="px-3 py-2 text-left font-semibold text-gray-500">Kategori</th>
                                                 <th className="px-3 py-2 text-left font-semibold text-gray-500">Açıklama</th>
                                                 <th className="px-3 py-2 text-right font-semibold text-gray-500">Tutar</th>
                                             </tr>
@@ -398,7 +418,13 @@ const ResidentDashboard = () => {
                                         <tbody>
                                             {allLedgerExpenses.map((g, i) => (
                                                 <tr key={i} className="border-b last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{g.ay}</td>
+                                                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap font-medium">{g.ay}</td>
+                                                    <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{g.tarih || '—'}</td>
+                                                    <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                                                        {g.kategori ? (
+                                                            <span className="inline-flex px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px]">{g.kategori}</span>
+                                                        ) : '—'}
+                                                    </td>
                                                     <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{g.aciklama}</td>
                                                     <td className="px-3 py-2 text-right font-bold text-red-600 dark:text-red-400 whitespace-nowrap">{formatCurrency(g.tutar)}</td>
                                                 </tr>
@@ -406,7 +432,7 @@ const ResidentDashboard = () => {
                                         </tbody>
                                         <tfoot>
                                             <tr className="bg-slate-100 dark:bg-slate-800 font-bold border-t-2">
-                                                <td colSpan={2} className="px-3 py-2">TOPLAM</td>
+                                                <td colSpan={4} className="px-3 py-2">TOPLAM</td>
                                                 <td className="px-3 py-2 text-right text-red-700 dark:text-red-300">{formatCurrency(totalLedgerExpense)}</td>
                                             </tr>
                                         </tfoot>

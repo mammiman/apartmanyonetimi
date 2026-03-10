@@ -56,8 +56,20 @@ const Dashboard = () => {
     removeExpenseItem,
     ledger,
     annualElevatorFee,
-    updateAnnualElevatorFee
+    updateAnnualElevatorFee,
+    isLoading
   } = useData();
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-muted-foreground animate-pulse">Veriler yükleniyor, lütfen bekleyin...</p>
+        </div>
+      </Layout>
+    );
+  }
 
   const handlePrintReceipt = (data: { type: 'gelir' | 'gider', amount: number, desc: string, date: string, name: string }) => {
     printReceipt({

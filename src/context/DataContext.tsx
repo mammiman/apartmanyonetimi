@@ -93,6 +93,7 @@ interface DataContextType {
     switchYear: (targetYear: number) => void;
     isDbAvailable: boolean;
     retryRemoteData: () => Promise<void>;
+    refreshData: (silent?: boolean) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -127,6 +128,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Loading state - DB'den veri çekilene kadar true
     const [isLoading, setIsLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [isDbAvailable, setIsDbAvailable] = useState(true);
     const initialLoadDone = useRef(false);
 
@@ -264,179 +266,198 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const dbTablesAvailable = useRef<Record<string, boolean>>({ monthly_summary: true, expense_items: true });
 
     // ===== DB'den Veri Çekme (DB-first approach) =====
-    useEffect(() => {
-        const loadRemoteData = async () => {
-            if (!buildingId || buildingId === 'default') {
+    const refreshData = useCallback(async (silent = false) => {
+        if (!buildingId || buildingId === 'default') {
+            setIsLoading(false);
+            return;
+        }
+
+        if (!silent) setIsLoading(true);
+        else setIsRefreshing(true);
+
+        try {
+            // 1) Önce DB bağlantısını kontrol et (tek bir istek)
+            const dbOk = await api.waitForDb();
+            setIsDbAvailable(dbOk);
+            if (!dbOk) {
+                dbConnected.current = false;
+                console.warn('[DB] Supabase erişilemez - sadece localStorage kullanılacak');
                 setIsLoading(false);
+                initialLoadDone.current = true;
                 return;
             }
-            // buildingId değiştiğinde ref'leri sıfırla (yeni cihazdan giriş senaryosu)
-            initialLoadDone.current = false;
+
             dbConnected.current = true;
-            try {
-                // 1) Önce DB bağlantısını kontrol et (tek bir istek)
-                const dbOk = await api.waitForDb();
-                setIsDbAvailable(dbOk);
-                if (!dbOk) {
-                    dbConnected.current = false;
-                    console.warn('[DB] Supabase erişilemez - sadece localStorage kullanılacak');
-                    setIsLoading(false);
-                    initialLoadDone.current = true;
-                    return;
-                }
 
-                // 2) DB bağlantısı var, settings'i çek
-                const remoteSettings = await api.fetchBuildingSettings(buildingId).catch(() => ({} as api.BuildingSettings));
+            // 2) DB bağlantısı var, TÜM verileri PARALEL çek (çok daha hızlı)
+            const [
+                remoteSettings,
+                remoteApts,
+                remoteDues,
+                remoteCols,
+                remoteStaff,
+                remoteLogs,
+                remoteSummary,
+                remoteExpenseItems,
+                allLedgerEntries
+            ] = await Promise.all([
+                api.fetchBuildingSettings(buildingId).catch(() => ({} as api.BuildingSettings)),
+                api.fetchApartments(buildingId).catch(() => null),
+                api.fetchDues(year).catch(() => null),
+                api.fetchDuesColumns(buildingId).catch(() => null),
+                api.fetchStaffRecords(buildingId).catch(() => null),
+                api.fetchLogs(buildingId).catch(() => null),
+                api.fetchMonthlySummary(buildingId, year).catch(() => { dbTablesAvailable.current.monthly_summary = false; return null; }),
+                api.fetchExpenseItems(buildingId).catch(() => { dbTablesAvailable.current.expense_items = false; return null; }),
+                api.fetchAllLedgerEntries(buildingId).catch(() => ({} as Record<string, any>)),
+            ]);
 
-                // 2) Tüm temel verileri çek (Sequentially for safety - stops flood on first 500)
-                let remoteApts = null;
-                if (api.isDbAvailable()) remoteApts = await api.fetchApartments(buildingId).catch(() => null);
+            // 3) Apartments - DB'den gelirse DB verisini kullan
+            if (remoteApts && remoteApts.length > 0) {
+                setApartments(remoteApts);
+            }
 
-                let remoteDues = null;
-                if (api.isDbAvailable()) remoteDues = await api.fetchDues(year).catch(() => null);
+            // 4) Dues - DB'den gelirse DB verisini kullan
+            if (remoteDues && remoteDues.length > 0) {
+                setDues(remoteDues);
+            }
 
-                let remoteCols = null;
-                if (api.isDbAvailable()) remoteCols = await api.fetchDuesColumns(buildingId).catch(() => null);
+            // 5) Dues Columns
+            if (remoteCols) {
+                setDuesColumns(remoteCols);
+            }
 
-                let remoteStaff = null;
-                if (api.isDbAvailable()) remoteStaff = await api.fetchStaffRecords(buildingId).catch(() => null);
+            // 6) Staff Records
+            if (remoteStaff && remoteStaff.length > 0) {
+                setStaffRecords(remoteStaff);
+            }
 
-                let remoteLogs = null;
-                if (api.isDbAvailable()) remoteLogs = await api.fetchLogs(buildingId).catch(() => null);
-
-                // Opsiyonel tablolar - yoksa sessizce atla
-                let remoteSummary: any = null;
-                let remoteExpenseItems: any = null;
-                try {
-                    if (api.isDbAvailable()) remoteSummary = await api.fetchMonthlySummary(buildingId, year);
-                } catch { dbTablesAvailable.current.monthly_summary = false; }
-                try {
-                    if (api.isDbAvailable()) remoteExpenseItems = await api.fetchExpenseItems(buildingId);
-                } catch { dbTablesAvailable.current.expense_items = false; }
-
-                // 3) Apartments - DB'den gelirse DB verisini kullan
-                if (remoteApts && remoteApts.length > 0) {
-                    setApartments(remoteApts);
-                }
-
-                // 4) Dues - DB'den gelirse DB verisini kullan
-                if (remoteDues && remoteDues.length > 0) {
-                    setDues(remoteDues);
-                }
-
-                // 5) Dues Columns
-                if (remoteCols) {
-                    setDuesColumns(remoteCols);
-                }
-
-                // 6) Staff Records
-                if (remoteStaff && remoteStaff.length > 0) {
-                    setStaffRecords(remoteStaff);
-                }
-
-                // 7) Ledger entries - her ay için çek
-                const newLedger = { ...initialLedgerData };
+            // 7) Ledger entries - zaten paralel çekildi, sadece işle
+            const newLedger = { ...initialLedgerData };
+            if (allLedgerEntries && Object.keys(allLedgerEntries).length > 0) {
+                const fixEntries = (rows: any[], month: string) => rows.map(r => ({
+                    ...r,
+                    displayAciklama: r.displayAciklama && !r.displayAciklama.startsWith('aidat_dues_')
+                        ? r.displayAciklama
+                        : r.aciklama.startsWith('aidat_dues_')
+                            ? `${r.sakinAdi || 'Daire ' + r.daireNo} (D:${r.daireNo || r.aciklama.replace('aidat_dues_', '')}) - ${month} Aidatı`
+                            : r.aciklama.startsWith('devir_from_')
+                                ? `${r.aciklama.replace('devir_from_', '')} ayından devir`
+                                : r.displayAciklama || r.aciklama,
+                }));
                 for (const month of MONTHS) {
-                    if (!api.isDbAvailable()) {
-                        console.warn(`[DB] Stopping ledger load at ${month} due to DB unavailability.`);
-                        break;
-                    }
-                    const entries = await api.fetchLedgerEntries(month, buildingId).catch(() => null);
+                    const entries = allLedgerEntries[month];
                     if (entries && (entries.gelirler.length > 0 || entries.giderler.length > 0)) {
-                        // displayAciklama eksikse aciklama'dan türet
-                        const fixEntries = (rows: any[]) => rows.map(r => ({
-                            ...r,
-                            displayAciklama: r.displayAciklama && !r.displayAciklama.startsWith('aidat_dues_')
-                                ? r.displayAciklama
-                                : r.aciklama.startsWith('aidat_dues_')
-                                    ? `${r.sakinAdi || 'Daire ' + r.daireNo} (D:${r.daireNo || r.aciklama.replace('aidat_dues_', '')}) - ${month} Aidatı`
-                                    : r.aciklama.startsWith('devir_from_')
-                                        ? `${r.aciklama.replace('devir_from_', '')} ayından devir`
-                                        : r.displayAciklama || r.aciklama,
-                        }));
                         newLedger[month] = {
-                            gelirler: fixEntries(entries.gelirler),
-                            giderler: fixEntries(entries.giderler),
+                            gelirler: fixEntries(entries.gelirler, month),
+                            giderler: fixEntries(entries.giderler, month),
                         };
                     }
                 }
-                setLedger(newLedger);
-
-                // 7) Logs
-                if (remoteLogs) {
-                    setLogs(remoteLogs.map(l => ({
-                        id: l.id,
-                        date: l.created_at,
-                        action: l.action,
-                        details: l.details,
-                        user: l.user
-                    })));
-                }
-
-                // 8) Building Settings - DB'den gelen ayarları uygula
-                if (remoteSettings) {
-                    if (remoteSettings.apartmentName) setApartmentName(remoteSettings.apartmentName);
-                    if (remoteSettings.monthlyDuesAmount !== undefined && !isNaN(remoteSettings.monthlyDuesAmount)) {
-                        setMonthlyDuesAmount(remoteSettings.monthlyDuesAmount);
-                    }
-                    if (remoteSettings.annualElevatorFee !== undefined && !isNaN(remoteSettings.annualElevatorFee)) {
-                        setAnnualElevatorFee(remoteSettings.annualElevatorFee);
-                    }
-                    if (remoteSettings.staffName) setStaffName(remoteSettings.staffName);
-                    if (remoteSettings.staffRole) setStaffRole(remoteSettings.staffRole);
-                    if (remoteSettings.availableYears && remoteSettings.availableYears.length > 0) {
-                        setAvailableYears(remoteSettings.availableYears);
-                    }
-                    if (remoteSettings.currentYear && !isNaN(remoteSettings.currentYear)) {
-                        setYear(remoteSettings.currentYear);
-                    }
-                    if ((remoteSettings as any).duesColumnFees) {
-                        setDuesColumnFees((remoteSettings as any).duesColumnFees);
-                    }
-                }
-
-                // 9) Monthly Summary - DB'den gelirse DB verisini kullan
-                if (remoteSummary && remoteSummary.length > 0) {
-                    setMonthlySummary(prev => {
-                        return prev.map(m => {
-                            const remote = remoteSummary.find(r => r.month_name === m.ay);
-                            if (remote) {
-                                return {
-                                    ay: m.ay,
-                                    gelir: remote.gelir,
-                                    gider: remote.gider,
-                                    asansor: remote.asansor,
-                                    kasa: remote.kasa,
-                                    banka: remote.banka,
-                                    fark: remote.fark,
-                                };
-                            }
-                            return m;
-                        });
-                    });
-                }
-
-                // 10) Expense Items - DB'den gelirse DB verisini kullan
-                if (remoteExpenseItems && remoteExpenseItems.length > 0) {
-                    setExpenseItems(remoteExpenseItems.map((item, idx) => ({
-                        id: item.id,
-                        description: item.description,
-                        amount: item.amount,
-                        quantity: item.quantity,
-                        unit: item.unit,
-                    })));
-                }
-
-            } catch (err) {
-                console.error("Data fetch error", err);
-            } finally {
-                setIsLoading(false);
-                initialLoadDone.current = true;
             }
-        };
-        setIsLoading(true);
-        loadRemoteData();
+            setLedger(newLedger);
+
+            // 7) Logs
+            if (remoteLogs) {
+                setLogs(remoteLogs.map(l => ({
+                    id: l.id,
+                    date: l.created_at,
+                    action: l.action,
+                    details: l.details,
+                    user: l.user
+                })));
+            }
+
+            // 8) Building Settings - DB'den gelen ayarları uygula
+            if (remoteSettings) {
+                if (remoteSettings.apartmentName) setApartmentName(remoteSettings.apartmentName);
+                if (remoteSettings.monthlyDuesAmount !== undefined && !isNaN(remoteSettings.monthlyDuesAmount)) {
+                    setMonthlyDuesAmount(remoteSettings.monthlyDuesAmount);
+                }
+                if (remoteSettings.annualElevatorFee !== undefined && !isNaN(remoteSettings.annualElevatorFee)) {
+                    setAnnualElevatorFee(remoteSettings.annualElevatorFee);
+                }
+                if (remoteSettings.staffName) setStaffName(remoteSettings.staffName);
+                if (remoteSettings.staffRole) setStaffRole(remoteSettings.staffRole);
+                if (remoteSettings.availableYears && remoteSettings.availableYears.length > 0) {
+                    setAvailableYears(remoteSettings.availableYears);
+                }
+                if (remoteSettings.currentYear && !isNaN(remoteSettings.currentYear)) {
+                    setYear(remoteSettings.currentYear);
+                }
+                if ((remoteSettings as any).duesColumnFees) {
+                    setDuesColumnFees((remoteSettings as any).duesColumnFees);
+                }
+            }
+
+            // 9) Monthly Summary - DB'den gelirse DB verisini kullan
+            if (remoteSummary && remoteSummary.length > 0) {
+                setMonthlySummary(prev => {
+                    return prev.map(m => {
+                        const remote = remoteSummary.find(r => r.month_name === m.ay);
+                        if (remote) {
+                            return {
+                                ay: m.ay,
+                                gelir: remote.gelir,
+                                gider: remote.gider,
+                                asansor: remote.asansor,
+                                kasa: remote.kasa,
+                                banka: remote.banka,
+                                fark: remote.fark,
+                            };
+                        }
+                        return m;
+                    });
+                });
+            }
+
+            // 10) Expense Items - DB'den gelirse DB verisini kullan
+            if (remoteExpenseItems && remoteExpenseItems.length > 0) {
+                setExpenseItems(remoteExpenseItems.map((item, idx) => ({
+                    id: item.id,
+                    description: item.description,
+                    amount: item.amount,
+                    quantity: item.quantity,
+                    unit: item.unit,
+                })));
+            }
+
+        } catch (err) {
+            console.error("Data refresh error", err);
+        } finally {
+            setIsLoading(false);
+            setIsRefreshing(false);
+            initialLoadDone.current = true;
+        }
     }, [buildingId, year]);
+
+    useEffect(() => {
+        refreshData();
+    }, [refreshData, buildingId, year]);
+
+    // Otomatik Yenileme: Sayfa odaklandığında ve her 60 saniyede bir
+    useEffect(() => {
+        if (!buildingId || buildingId === 'default') return;
+
+        // 1) Periyodik yenileme (60 saniye)
+        const interval = setInterval(() => {
+            console.log("[DataContext] Auto-refreshing data...");
+            refreshData(true);
+        }, 60000);
+
+        // 2) Focus yenileme (Tab'a geri dönüldüğünde)
+        const handleFocus = () => {
+            console.log("[DataContext] Tab focused, refreshing data...");
+            refreshData(true);
+        };
+
+        window.addEventListener('focus', handleFocus);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, [refreshData, buildingId]);
 
     // initialLoadDone olunca mevcut aidat ödemelerini ledger_entries'e sync et (tek seferlik migration)
     const ledgerSyncDoneRef = useRef(false);
@@ -445,28 +466,45 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (ledgerSyncDoneRef.current) return;
         if (!buildingId || buildingId === 'default') return;
         if (!api.isDbAvailable()) return;
+
         // Zaten ledger'da aidat_dues kayıtları varsa sync gerekmez
         const hasAnyAidat = MONTHS.some(m =>
             (ledger[m]?.gelirler || []).some(r => String(r.aciklama).startsWith('aidat_dues_'))
         );
-        if (hasAnyAidat) {
+
+        // Aidat ödemesi olan ama ledger'da karşılığı olmayan daireler var mı?
+        const hasUnsynced = dues.some(due =>
+            MONTHS.some(month => {
+                const amount = due.odemeler?.[month] || 0;
+                if (amount <= 0) return false;
+                // ledger'da bu aidat kaydı var mı?
+                const monthGelirler = ledger[month]?.gelirler || [];
+                return !monthGelirler.some(r => String(r.aciklama) === `aidat_dues_${due.daireNo}`);
+            })
+        );
+
+        if (hasAnyAidat && !hasUnsynced) {
             ledgerSyncDoneRef.current = true;
             return;
         }
+
         // Mevcut tüm aidat ödemelerini ledger_entries tablosuna yaz (migration)
         ledgerSyncDoneRef.current = true;
         const effectiveBuildingId = buildingId !== 'default' ? buildingId : undefined;
+        console.log('[DB] Syncing dues to ledger_entries (migration)...');
         dues.forEach(due => {
             MONTHS.forEach(month => {
                 const amount = due.odemeler?.[month] || 0;
                 if (amount > 0) {
                     const apt = apartments.find(a => a.daireNo === due.daireNo);
                     const sakinAdi = apt?.sakinAdi || due.sakinAdi || String(due.daireNo);
-                    api.upsertLedgerAidatEntry(month, due.daireNo, sakinAdi, amount, effectiveBuildingId).catch(() => { });
+                    api.upsertLedgerAidatEntry(month, due.daireNo, sakinAdi, amount, effectiveBuildingId).catch((err) => {
+                        console.warn('[DB] upsertLedgerAidatEntry error:', err);
+                    });
                 }
             });
         });
-    }, [isLoading]); // isLoading false'a dönünce tetiklenir
+    }, [isLoading, dues, ledger]); // isLoading false'a dönünce ve dues + ledger güncellenince tetiklenir
 
     const retryRemoteData = async () => {
         api.resetDbStatus();
@@ -515,7 +553,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Monthly Summary değiştiğinde DB'ye kaydet (tablo mevcutsa)
     useEffect(() => {
-        if (!canSaveToDB() || !dbTablesAvailable.current.monthly_summary) return;
+        if (isLoading || !canSaveToDB() || !dbTablesAvailable.current.monthly_summary) return;
 
         // Sadece GELİR veya GİDER gerçekten hesaplanmışsa (0'dan farklıysa veya 0 olarak teyit edilmişse) kaydet
         monthlySummary.forEach(m => {
@@ -535,8 +573,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Ledger değişince gelir/gider/fark/kasa güncelle; banka'yı koru (manuel override varsa)
     useEffect(() => {
+        if (isLoading) return; // Veri yüklenirken hesaplama yapma
+
         // Devir bakiyesini bul
-        const devirRow = monthlySummary.find(m => m.ay.includes('Devir'));
+        const devirRow = monthlySummary.find(m => m.ay === 'Devir');
         const devirGelir = devirRow ? devirRow.gelir : 0;
         let cumulativeKasa = devirGelir;
 
@@ -570,6 +610,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // dues.odemeler değişince ledger'ı sync et (TEK KAYNAK: dues)
     useEffect(() => {
+        if (isLoading) return; // Veri yüklenirken sync yapma
+
         setLedger(prevLedger => {
             let updated = { ...prevLedger };
             MONTHS.forEach(month => {
@@ -808,6 +850,30 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const amount = data.toplamOdenen;
                 const ledgerTag = `staff_payment_${month}`;
 
+                // Sync with DB Ledger
+                // First delete existing entry with that tag to avoid duplicates in DB
+                const existingInContext = ledger[month]?.giderler.find(g => g.aciklama === ledgerTag);
+
+                const entry: Omit<LedgerRow, 'id'> = {
+                    tarih: new Date().toLocaleDateString('tr-TR'),
+                    aciklama: ledgerTag,
+                    kategori: 'Personel Ödemesi',
+                    tutar: amount,
+                    tip: 'gider' as const,
+                    ay: month,
+                    displayAciklama: `${month} Ayı Personel Ödemesi (${staffName})`
+                };
+
+                if (existingInContext) {
+                    api.deleteLedgerEntry(existingInContext.id).then(() => {
+                        if (amount > 0) {
+                            api.createLedgerEntry(month, 'gider', entry, buildingId).catch(console.error);
+                        }
+                    }).catch(console.error);
+                } else if (amount > 0) {
+                    api.createLedgerEntry(month, 'gider', entry, buildingId).catch(console.error);
+                }
+
                 setLedger(prevLedger => {
                     const monthData = prevLedger[month] || { giderler: [], gelirler: [] };
                     const filteredGiderler = (monthData.giderler || []).filter(r => r.aciklama !== ledgerTag);
@@ -818,7 +884,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             id: maxId + 1,
                             tarih: new Date().toLocaleDateString('tr-TR'),
                             aciklama: ledgerTag,
-                            kategori: 'Kapıcı Aylık',
+                            kategori: 'Personel Ödemesi',
                             tutar: amount,
                             tip: 'gider' as const,
                             ay: month,
@@ -1154,7 +1220,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addExpenseItem,
         removeExpenseItem,
         isDbAvailable,
-        retryRemoteData
+        retryRemoteData,
+        refreshData
     };
 
     return (

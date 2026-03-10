@@ -23,7 +23,9 @@ import {
   Download,
   ScrollText,
   Printer,
-  Bell
+  Bell,
+  Image as ImageIcon,
+  Camera
 } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import {
@@ -66,6 +68,10 @@ const Dashboard = () => {
   } = useData();
 
   const [newAnnouncement, setNewAnnouncement] = useState("");
+  const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
+
+  // Get all photos from ledger for selection
+  const allLedgerPhotos = Object.values(ledger).flatMap(m => m.giderler || []).filter(g => g.photoId);
 
   if (isLoading) {
     return (
@@ -369,23 +375,43 @@ const Dashboard = () => {
     // Kullanıcı banka değerini manuel girmişse (0'dan farklı) onu kullan, yoksa kümülatif kasayı kullan
     const summaryRow = monthlySummary.find(m => m.ay === month);
     const hasBankaOverride = summaryRow && summaryRow.banka !== undefined && summaryRow.banka !== 0;
-    const banka = hasBankaOverride ? summaryRow.banka : cumulativeKasa;
+    const bankaValue = hasBankaOverride ? summaryRow.banka : cumulativeKasa;
+    
+    // FARK: Kasa ile Banka arasındaki fark (Eldeki Nakit)
+    const eldekiNakit = cumulativeKasa - bankaValue;
 
-    return { month, gelir, gider, asansor, diyafon, kasa: cumulativeKasa, banka, fark };
+    return { 
+      month, 
+      gelir, 
+      gider, 
+      asansor, 
+      diyafon, 
+      kasa: cumulativeKasa, 
+      banka: bankaValue, 
+      fark: eldekiNakit 
+    };
   });
 
   // Son ayın banka değerini bul (TOPLAM için)
   const lastRowWithBanka = [...icmalRows].reverse().find(r => r.gelir > 0 || r.gider > 0);
   const toplamBanka = lastRowWithBanka ? lastRowWithBanka.banka : cumulativeKasa;
 
-  const icmalToplam = {
+  const icmalToplamPre = {
     gelir: icmalRows.reduce((s, r) => s + r.gelir, 0) + devirGelir,
     gider: icmalRows.reduce((s, r) => s + r.gider, 0),
     asansor: icmalRows.reduce((s, r) => s + r.asansor, 0),
     diyafon: icmalRows.reduce((s, r) => s + r.diyafon, 0),
     kasa: cumulativeKasa,
     banka: toplamBanka,
-    fark: icmalRows.reduce((s, r) => s + r.fark, 0) + devirGelir,
+  };
+
+  const finalBanka = bankaToplami ?? icmalToplamPre.banka;
+  const finalFark = icmalToplamPre.kasa - finalBanka;
+
+  const icmalToplam = {
+    ...icmalToplamPre,
+    banka: finalBanka,
+    fark: finalFark
   };
 
   const fmt = (v: number) => v === 0 ? '0,00' : formatNumber(v);
@@ -483,8 +509,108 @@ const Dashboard = () => {
           </div>
         </div>
 
+        {/* İlanlar ve Duyurular */}
+        <Card className="shadow-lg h-fit">
+          <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 border-b py-3 px-4 flex flex-row items-center justify-between">
+            <CardTitle className="text-sm font-bold flex items-center gap-2">
+              <Bell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              Sakinler İçin İlanlar ve Duyurular
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 space-y-3">
+            <div className="flex gap-2">
+              <div className="flex flex-col flex-1 gap-2">
+                <Input
+                  placeholder="Yeni bir duyuru mesajı yazın..."
+                  value={newAnnouncement}
+                  onChange={(e) => setNewAnnouncement(e.target.value)}
+                  className="h-9 text-sm"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newAnnouncement.trim()) {
+                      addAnnouncement(newAnnouncement.trim(), selectedPhotoId || undefined);
+                      setNewAnnouncement("");
+                      setSelectedPhotoId(null);
+                    }
+                  }}
+                />
+                {selectedPhotoId && (
+                  <div className="flex items-center gap-2 text-[10px] text-purple-600 bg-purple-50 p-1 px-2 rounded-md border border-purple-100 w-fit">
+                    <ImageIcon className="w-3 h-3" />
+                    <span>Fotoğraf eklendi</span>
+                    <button onClick={() => setSelectedPhotoId(null)} className="text-red-500 hover:text-red-700 ml-1">✕</button>
+                  </div>
+                )}
+              </div>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2 border-purple-200 text-purple-700 hover:bg-purple-50 h-9">
+                    <Camera className="w-4 h-4" />
+                    <span className="hidden sm:inline">Fotoğraf Seç</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto z-[100]">
+                  <DropdownMenuLabel className="text-xs">Gider Fotoğrafları</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {allLedgerPhotos.length > 0 ? (
+                    allLedgerPhotos.map((photo, idx) => (
+                      <DropdownMenuItem
+                        key={`${photo.id}-${idx}`}
+                        onClick={() => setSelectedPhotoId(photo.photoId || null)}
+                        className="flex flex-col items-start gap-1 py-1.5 cursor-pointer text-xs"
+                      >
+                        <span className="font-medium">{photo.aciklama}</span>
+                        <span className="text-[10px] text-muted-foreground">{photo.tarih} - {formatCurrency(photo.tutar)}</span>
+                      </DropdownMenuItem>
+                    ))
+                  ) : (
+                    <div className="p-4 text-center text-[10px] text-muted-foreground">Henüz fotoğraflı gider yok.</div>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (newAnnouncement.trim()) {
+                    addAnnouncement(newAnnouncement.trim(), selectedPhotoId || undefined);
+                    setNewAnnouncement("");
+                    setSelectedPhotoId(null);
+                  }
+                }}
+                className="bg-purple-600 hover:bg-purple-700 text-white shadow-md transition-all h-9"
+              >
+                Yayınla
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2">
+              {announcements && announcements.length > 0 ? announcements.map((a) => (
+                <div key={a.id} className="flex justify-between items-center p-2 px-3 rounded-lg border border-purple-100 bg-purple-50/50 dark:border-purple-900/30 dark:bg-purple-900/10 transition-colors hover:bg-purple-50 dark:hover:bg-purple-900/20">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    {a.photoId && (
+                      <div className="bg-purple-100 p-1.5 rounded-lg flex-shrink-0">
+                        <ImageIcon className="w-3.5 h-3.5 text-purple-600" />
+                      </div>
+                    )}
+                    <div className="flex flex-col overflow-hidden">
+                      <span className="font-semibold text-xs text-slate-800 dark:text-slate-200 truncate">{a.message}</span>
+                      <span className="text-[10px] text-slate-500">{a.date}</span>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-100 flex-shrink-0" onClick={() => deleteAnnouncement(a.id)}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              )) : (
+                <p className="text-xs text-slate-500 text-center italic py-2 col-span-2">Henüz bir duyuru yayınlanmadı.</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
           <Link to="/isletme-defteri" className="block">
             <Card className="hover:shadow-md transition-shadow cursor-pointer h-full border-l-4 border-l-primary">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -517,10 +643,12 @@ const Dashboard = () => {
             </CardContent>
           </Card>
 
+
+
           <Link to="/aidat" className="block">
             <Card className="hover:shadow-md transition-shadow cursor-pointer h-full border-l-4 border-l-destructive">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Toplam Alacak (Borçlar)</CardTitle>
+                <CardTitle className="text-sm font-medium">Toplam Alacak</CardTitle>
                 <span className="text-2xl">📉</span>
               </CardHeader>
               <CardContent>
@@ -528,7 +656,7 @@ const Dashboard = () => {
                   {formatCurrency(totalBorc)}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Sakinlerin ödemesi gereken
+                  Dairelerin borç toplamı
                 </p>
               </CardContent>
             </Card>
@@ -542,10 +670,10 @@ const Dashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-foreground">
-                  {duesSchedule.length} <span className="text-sm font-normal text-muted-foreground">Aktif</span>
+                  {duesSchedule.length} <span className="text-sm font-normal text-muted-foreground">Adet</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Toplam bağımsız bölüm
+                  Bağımsız bölümler
                 </p>
               </CardContent>
             </Card>
@@ -872,57 +1000,7 @@ const Dashboard = () => {
           </Card>
         </div>
 
-        {/* İlanlar ve Duyurular */}
-        <Card className="shadow-lg h-fit mb-6">
-          <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 border-b">
-            <CardTitle className="text-lg font-bold flex items-center gap-2">
-              <Bell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-              Sakinler İçin İlanlar ve Duyurular
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 space-y-4">
-            <div className="flex gap-2">
-              <Input
-                placeholder="Yeni bir duyuru mesajı yazın..."
-                value={newAnnouncement}
-                onChange={(e) => setNewAnnouncement(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newAnnouncement.trim()) {
-                    addAnnouncement(newAnnouncement.trim());
-                    setNewAnnouncement("");
-                  }
-                }}
-              />
-              <Button
-                onClick={() => {
-                  if (newAnnouncement.trim()) {
-                    addAnnouncement(newAnnouncement.trim());
-                    setNewAnnouncement("");
-                  }
-                }}
-                className="bg-purple-600 hover:bg-purple-700 text-white shadow-md transition-all"
-              >
-                Yayınla
-              </Button>
-            </div>
-            
-            <div className="space-y-2 pt-2">
-              {announcements && announcements.length > 0 ? announcements.map((a) => (
-                <div key={a.id} className="flex justify-between items-center p-3 rounded-lg border border-purple-100 bg-purple-50/50 dark:border-purple-900/30 dark:bg-purple-900/10 transition-colors hover:bg-purple-50 dark:hover:bg-purple-900/20">
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{a.message}</span>
-                    <span className="text-xs text-slate-500 mt-0.5">{a.date}</span>
-                  </div>
-                  <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900/30" onClick={() => deleteAnnouncement(a.id)}>
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              )) : (
-                <p className="text-sm text-slate-500 text-center italic py-4">Henüz bir duyuru yayınlanmadı.</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+
       </div>
     </Layout>
   );

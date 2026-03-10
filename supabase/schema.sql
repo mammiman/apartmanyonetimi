@@ -14,7 +14,9 @@ CREATE TABLE public.users (
 -- Apartments table
 CREATE TABLE public.apartments (
   id SERIAL PRIMARY KEY,
-  apartment_number INTEGER UNIQUE NOT NULL,
+  apartment_number INTEGER NOT NULL,
+  block TEXT,
+  building_id UUID,
   resident_name VARCHAR(255) NOT NULL,
   owner_name VARCHAR(255),
   has_elevator BOOLEAN DEFAULT true,
@@ -70,16 +72,80 @@ CREATE TABLE public.ledger_entries (
   description TEXT NOT NULL,
   person VARCHAR(255),
   amount DECIMAL(10, 2) NOT NULL,
+  kategori VARCHAR(100),
+  display_aciklama TEXT,
+  tarih VARCHAR(20),
+  daire_no INTEGER,
+  sakin_adi VARCHAR(255),
+  ay VARCHAR(20),
+  building_id UUID,
+  photo_id TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Announcements table
+CREATE TABLE public.announcements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  building_id UUID NOT NULL,
+  message TEXT NOT NULL,
+  photo_id TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Staff records table
 CREATE TABLE public.staff_records (
   id SERIAL PRIMARY KEY,
-  month VARCHAR(20) UNIQUE NOT NULL,
+  building_id UUID,
+  month VARCHAR(20) NOT NULL,
   manager_salary DECIMAL(10, 2) DEFAULT 0,
   cleaner_salary DECIMAL(10, 2) DEFAULT 0,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  mesai DECIMAL(10, 2) DEFAULT 0,
+  odenen DECIMAL(10, 2) DEFAULT 0,
+  avans DECIMAL(10, 2) DEFAULT 0,
+  alacak DECIMAL(10, 2) DEFAULT 0,
+  toplam_odenen DECIMAL(10, 2) DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(building_id, month)
+);
+
+-- Expense Items table
+CREATE TABLE public.expense_items (
+  id SERIAL PRIMARY KEY,
+  building_id UUID NOT NULL,
+  description TEXT NOT NULL,
+  amount DECIMAL(10, 2) DEFAULT 0,
+  quantity DECIMAL(10, 2) DEFAULT 1,
+  unit VARCHAR(20) DEFAULT 'TL',
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(building_id, description)
+);
+
+-- Monthly Summary table
+CREATE TABLE public.monthly_summary (
+  id SERIAL PRIMARY KEY,
+  building_id UUID NOT NULL,
+  month_name VARCHAR(20) NOT NULL,
+  year INTEGER NOT NULL,
+  gelir DECIMAL(10, 2) DEFAULT 0,
+  gider DECIMAL(10, 2) DEFAULT 0,
+  asansor DECIMAL(10, 2) DEFAULT 0,
+  diyafon DECIMAL(10, 2) DEFAULT 0,
+  kasa DECIMAL(10, 2) DEFAULT 0,
+  banka DECIMAL(10, 2) DEFAULT 0,
+  fark DECIMAL(10, 2) DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(building_id, month_name, year)
+);
+
+-- Building Settings table
+CREATE TABLE public.building_settings (
+  id SERIAL PRIMARY KEY,
+  building_id UUID NOT NULL,
+  setting_key VARCHAR(100) NOT NULL,
+  setting_value JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(building_id, setting_key)
 );
 
 -- Add foreign key constraint for users.apartment_id
@@ -106,6 +172,9 @@ ALTER TABLE public.extra_fees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dues_columns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ledger_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.staff_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.expense_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.monthly_summary ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.building_settings ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for users table
 CREATE POLICY "Users can view their own data"
@@ -277,9 +346,38 @@ CREATE POLICY "Admins can manage ledger entries"
     )
   );
 
--- RLS Policies for staff_records table (admin only)
 CREATE POLICY "Admins can manage staff records"
   ON public.staff_records FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.users
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- RLS Policies for expense_items table (admin only)
+CREATE POLICY "Admins can manage expense items"
+  ON public.expense_items FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.users
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- RLS Policies for monthly_summary table (admin only)
+CREATE POLICY "Admins can manage monthly summary"
+  ON public.monthly_summary FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.users
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- RLS Policies for building_settings table (admin only)
+CREATE POLICY "Admins can manage building settings"
+  ON public.building_settings FOR ALL
   USING (
     EXISTS (
       SELECT 1 FROM public.users
@@ -381,7 +479,8 @@ $$;
 CREATE OR REPLACE FUNCTION public.generate_access_code_and_user(
   p_apartment_number INTEGER,
   p_resident_name TEXT,
-  p_building_id UUID DEFAULT NULL
+  p_building_id UUID DEFAULT NULL,
+  p_blok TEXT DEFAULT NULL
 )
 RETURNS TEXT
 LANGUAGE plpgsql
@@ -403,11 +502,15 @@ BEGIN
 
   -- 2) Daire yoksa oluştur, varsa id'sini al
   SELECT id, building_id INTO v_apt_id, v_building
-  FROM apartments WHERE apartment_number = p_apartment_number LIMIT 1;
+  FROM apartments 
+  WHERE apartment_number = p_apartment_number 
+    AND (p_blok IS NULL OR block = p_blok)
+    AND (p_building_id IS NULL OR building_id = p_building_id)
+  LIMIT 1;
 
   IF v_apt_id IS NULL THEN
-    INSERT INTO apartments (apartment_number, resident_name, access_code, building_id)
-    VALUES (p_apartment_number, p_resident_name, v_code, p_building_id)
+    INSERT INTO apartments (apartment_number, resident_name, access_code, building_id, block)
+    VALUES (p_apartment_number, p_resident_name, v_code, p_building_id, p_blok)
     RETURNING id INTO v_apt_id;
     v_building := p_building_id;
   ELSE

@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
-import { Pencil, Save, Plus, Trash2, Download, Upload } from "lucide-react";
+import { Pencil, Save, Plus, Trash2, Download, Upload, ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { useData } from "@/context/DataContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -374,7 +374,7 @@ const DuesSchedule = () => {
     }
   };
 
-  // Bakiye hesaplama
+  // Bakiye hesaplama (Sadece anapara borcu)
   const calculateBalance = (row: any, isManager: boolean, subjectToElevator: boolean) => {
     const devir = row.devredenBorc2024 || 0;
 
@@ -397,8 +397,8 @@ const DuesSchedule = () => {
       }
     });
 
-    const penalty = calculateLateFee(row, isManager);
-    totalDue += penalty;
+    // NOT: Gecikme cezası ayrı bir sütun olduğu için burada eklemiyoruz.
+    // Böylece Borç sütunu anaparayı gösterir, Toplam sütununda ceza ile toplanır.
 
     const totalPaid = row.toplamOdenen || 0;
 
@@ -425,10 +425,12 @@ const DuesSchedule = () => {
     <Layout>
       <div className="animate-fade-in space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Aidat Ödeme Çizelgesi</h1>
-            <p className="text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-2">
-              {year} Yılı — Aylık Aidat:
+          <div className="flex-1">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Aidat Ödeme Çizelgesi</h1>
+            <p className="text-gray-500 dark:text-gray-400 mt-1 flex flex-wrap items-center gap-2">
+              <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-xs font-bold">{year} Yılı</span>
+              <span className="text-slate-300">|</span>
+              Aylık Aidat:
               {isEditingDuesAmount ? (
                 <Input
                   type="number"
@@ -486,13 +488,13 @@ const DuesSchedule = () => {
               )}
             </p>
           </div>
-          <div className="flex items-center gap-2 bg-muted/30 p-2 rounded-lg border">
-            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors mr-2">
+          <div className="flex flex-wrap items-center gap-2 bg-muted/30 p-2 rounded-xl border w-full lg:w-auto">
+            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors mr-2 bg-white/50 px-2 py-1 rounded-lg border">
               <input
                 type="checkbox"
                 checked={showFutureMonths}
                 onChange={(e) => setShowFutureMonths(e.target.checked)}
-                className="rounded border-gray-300 text-primary focus:ring-primary h-4 w-4"
+                className="rounded border-gray-300 text-primary focus:ring-primary h-3.5 w-3.5"
               />
               Gelecek Aylar
             </label>
@@ -574,18 +576,32 @@ const DuesSchedule = () => {
                   Yıllık Tahakkuk
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
-                  checked={!hiddenColumns.includes('toplam')}
-                  onCheckedChange={() => toggleColumn('toplam')}
+                  checked={!hiddenColumns.includes('toplamOdenen')}
+                  onCheckedChange={() => toggleColumn('toplamOdenen')}
                   onSelect={(e) => e.preventDefault()}
                 >
-                  Toplam
+                  Toplam Ödenen
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
-                  checked={!hiddenColumns.includes('bakiye')}
-                  onCheckedChange={() => toggleColumn('bakiye')}
+                  checked={!hiddenColumns.includes('borc')}
+                  onCheckedChange={() => toggleColumn('borc')}
                   onSelect={(e) => e.preventDefault()}
                 >
-                  Bakiye
+                  Borç
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={!hiddenColumns.includes('gecikmeCezasi')}
+                  onCheckedChange={() => toggleColumn('gecikmeCezasi')}
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  %5 Gecikme Cezası
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={!hiddenColumns.includes('odenecekToplam')}
+                  onCheckedChange={() => toggleColumn('odenecekToplam')}
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  Ödenecekler Toplam
                 </DropdownMenuCheckboxItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -797,40 +813,45 @@ const DuesSchedule = () => {
 
         <div className="rounded-xl border shadow-sm bg-card overflow-hidden">
           <div className="overflow-x-auto">
-            <Table>
+            {/* Mobilde sağa kaydırma ipucu */}
+            <div className="lg:hidden flex items-center justify-center gap-2 py-2 text-[10px] text-muted-foreground animate-pulse border-b bg-slate-50">
+              <ArrowLeftRight className="w-3 h-3" />
+              Sağa kaydırarak diğer ayları görebilirsiniz
+            </div>
+            <Table className="border-collapse">
               <TableHeader>
                 <TableRow className="bg-gray-800 hover:bg-gray-800 border-b-2 border-gray-700">
-                  {!hiddenColumns.includes('no') && <TableHead className="sticky left-0 bg-gray-800 z-20 w-[50px] text-center font-bold text-white shadow-[1px_0_0_0_rgba(255,255,255,0.1)] text-xs tracking-wider">NO</TableHead>}
-                  {!hiddenColumns.includes('sakin') && <TableHead className="sticky left-[50px] bg-gray-800 z-20 min-w-[150px] font-bold text-white shadow-[1px_0_0_0_rgba(255,255,255,0.1)] text-xs tracking-wider">DAİRE SAKİNİ</TableHead>}
-                  {!hiddenColumns.includes('devir') && <TableHead className="text-center font-bold min-w-[80px] bg-amber-700 text-amber-100 text-xs tracking-wider">DEVİR</TableHead>}
+                  {!hiddenColumns.includes('no') && <TableHead className="sticky left-0 bg-gray-800 z-30 w-[40px] text-center font-bold text-white shadow-[1px_0_0_0_rgba(255,255,255,0.1)] text-[10px] md:text-xs tracking-wider">NO</TableHead>}
+                  {!hiddenColumns.includes('sakin') && <TableHead className="sticky left-[40px] md:left-[50px] bg-gray-800 z-30 min-w-[120px] md:min-w-[150px] font-bold text-white shadow-[1px_0_0_0_rgba(255,255,255,0.1)] text-[10px] md:text-xs tracking-wider">DAİRE SAKİNİ</TableHead>}
+                  {!hiddenColumns.includes('devir') && <TableHead className="text-center font-bold min-w-[70px] bg-amber-700 text-amber-100 text-[10px] md:text-xs tracking-wider">DEVİR</TableHead>}
                   {MONTHS.map((month, idx) => {
                     if (!showFutureMonths && idx > currentMonthIndex) return null;
                     if (hiddenColumns.includes(month)) return null;
                     return (
-                      <TableHead key={month} className="text-center min-w-[75px] font-bold text-xs text-gray-200 uppercase bg-gray-700 tracking-wider">
+                      <TableHead key={month} className="text-center min-w-[65px] md:min-w-[75px] font-bold text-[10px] md:text-xs text-gray-200 uppercase bg-gray-700 tracking-wider">
                         {month.slice(0, 3)}
                       </TableHead>
                     );
                   })}
-                  {!hiddenColumns.includes('asansor') && <TableHead className="text-center font-bold bg-indigo-700 text-indigo-100 text-xs tracking-wider whitespace-nowrap">ASANSÖR</TableHead>}
+                  {!hiddenColumns.includes('asansor') && <TableHead className="text-center font-bold bg-indigo-700 text-indigo-100 text-[10px] md:text-xs tracking-wider whitespace-nowrap">ASANSÖR</TableHead>}
                   {(duesColumns || []).map(col => !hiddenColumns.includes(col) && (
-                    <TableHead key={col} className="text-center font-bold bg-sky-700 text-sky-100 text-xs">
+                    <TableHead key={col} className="text-center font-bold bg-sky-700 text-sky-100 text-[10px] md:text-xs">
                       <div className="flex flex-col items-center gap-0.5">
                         <div className="flex items-center gap-1">
                           {col}
                           {isEditing && <Trash2 className="w-3 h-3 cursor-pointer text-red-300 hover:text-red-100" onClick={() => removeDuesColumn(col)} />}
                         </div>
                         {duesColumnFees[col] > 0 && (
-                          <span className="text-[9px] text-sky-200 font-normal">({formatNumber(duesColumnFees[col])} TL)</span>
+                          <span className="text-[8px] md:text-[9px] text-sky-200 font-normal">({formatNumber(duesColumnFees[col])} TL)</span>
                         )}
                       </div>
                     </TableHead>
                   ))}
-                  {!hiddenColumns.includes('yilToplam') && <TableHead className="text-center font-bold bg-gray-700 text-gray-200 text-xs tracking-wider whitespace-nowrap">YILLIK<br />TOPLAM</TableHead>}
-                  {!hiddenColumns.includes('toplamOdenen') && <TableHead className="text-right font-bold bg-emerald-700 text-emerald-100 text-xs tracking-wider whitespace-nowrap">TOPLAM<br />ÖDENEN</TableHead>}
-                  {!hiddenColumns.includes('borc') && <TableHead className="text-right font-bold bg-orange-700 text-orange-100 text-xs tracking-wider">BORÇ</TableHead>}
-                  {!hiddenColumns.includes('gecikmeCezasi') && <TableHead className="text-right font-bold bg-red-700 text-red-100 text-xs tracking-wider whitespace-nowrap">%5 GECİKME<br />CEZASI</TableHead>}
-                  {!hiddenColumns.includes('odenecekToplam') && <TableHead className="text-right font-bold bg-slate-900 text-white text-xs tracking-wider sticky right-0 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.3)] whitespace-nowrap">ÖDENECEKLER<br />TOPLAM</TableHead>}
+                  {!hiddenColumns.includes('yilToplam') && <TableHead className="text-center font-bold bg-gray-700 text-gray-200 text-[10px] md:text-xs tracking-wider whitespace-nowrap">YILLIK<br />TOPLAM</TableHead>}
+                  {!hiddenColumns.includes('toplamOdenen') && <TableHead className="text-right font-bold bg-emerald-700 text-emerald-100 text-[10px] md:text-xs tracking-wider whitespace-nowrap">TOPLAM<br />ÖDENEN</TableHead>}
+                  {!hiddenColumns.includes('borc') && <TableHead className="text-right font-bold bg-orange-700 text-orange-100 text-[10px] md:text-xs tracking-wider">BORÇ</TableHead>}
+                  {!hiddenColumns.includes('gecikmeCezasi') && <TableHead className="text-right font-bold bg-red-700 text-red-100 text-[10px] md:text-xs tracking-wider whitespace-nowrap">%5 GECİKME<br />CEZASI</TableHead>}
+                  {!hiddenColumns.includes('odenecekToplam') && <TableHead className="text-right font-bold bg-slate-900 text-white text-[10px] md:text-xs tracking-wider sticky right-0 z-30 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.3)] whitespace-nowrap">ÖDENECEKLER<br />TOPLAM</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -855,13 +876,13 @@ const DuesSchedule = () => {
                         : 'hover:bg-blue-50/50'
                         }`}
                     >
-                      {!hiddenColumns.includes('no') && <TableCell className={`sticky left-0 ${isManager ? 'bg-purple-50/50 group-hover:bg-purple-100/50' : 'bg-white group-hover:bg-blue-50'} z-10 font-bold text-center border-r shadow-[1px_0_0_0_hsl(var(--border))] text-slate-700`}>
+                      {!hiddenColumns.includes('no') && <TableCell className={`sticky left-0 ${isManager ? 'bg-purple-50/50 group-hover:bg-purple-100/50' : 'bg-white group-hover:bg-blue-50'} z-20 font-bold text-center border-r shadow-[1px_0_0_0_hsl(var(--border))] text-slate-700 text-[10px] md:text-sm`}>
                         {row.daireNo}
                         {isManager && (
-                          <span className="ml-1 text-[10px] text-purple-600">👤</span>
+                          <span className="ml-1 text-[8px] md:text-[10px] text-purple-600">👤</span>
                         )}
                       </TableCell>}
-                      {!hiddenColumns.includes('sakin') && <TableCell className={`sticky left-[50px] ${isManager ? 'bg-purple-50/50 group-hover:bg-purple-100/50' : 'bg-white group-hover:bg-blue-50'} z-10 font-medium text-xs whitespace-nowrap border-r shadow-[1px_0_0_0_hsl(var(--border))] text-slate-900`}>
+                      {!hiddenColumns.includes('sakin') && <TableCell className={`sticky left-[40px] md:left-[50px] ${isManager ? 'bg-purple-50/50 group-hover:bg-purple-100/50' : 'bg-white group-hover:bg-blue-50'} z-20 font-medium text-[10px] md:text-xs whitespace-nowrap border-r shadow-[1px_0_0_0_hsl(var(--border))] text-slate-900`}>
                         {row.sakinAdi}
                       </TableCell>}
 
@@ -1036,18 +1057,26 @@ const DuesSchedule = () => {
                         {formatNumber(row.toplamOdenen)}
                       </TableCell>}
 
-                      {/* Balance */}
-                      {!hiddenColumns.includes('bakiye') && <TableCell className={`text-right sticky right-0 bg-white group-hover:bg-blue-50/50 border-l shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)]`}>
-                        <span className={`text-xs font-bold px-2 py-1 rounded ${isDebt ? "text-red-600 bg-red-50" : "text-emerald-700 bg-emerald-50"}`}>
+                      {/* Balance (BORÇ) */}
+                      {!hiddenColumns.includes('borc') && <TableCell className={`text-right bg-white group-hover:bg-blue-50/50 border-l shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] text-[10px] md:text-xs`}>
+                        <span className={`font-bold px-1.5 py-0.5 md:px-2 md:py-1 rounded ${isDebt ? "text-red-600 bg-red-50" : "text-emerald-700 bg-emerald-50"}`}>
                           {formatNumber(displayBalance)}
                         </span>
                       </TableCell>}
 
-                      {showLateFees && (
-                        <TableCell className="text-right text-xs text-destructive font-medium bg-red-50/50">
+                      {/* GECİKME CEZASI */}
+                      {!hiddenColumns.includes('gecikmeCezasi') && (
+                        <TableCell className="text-right text-[10px] md:text-xs text-destructive font-medium bg-red-50/50">
                           {lateFee > 0 ? formatNumber(lateFee) : "—"}
                         </TableCell>
                       )}
+
+                      {/* ÖDENECEKLER TOPLAM */}
+                      {!hiddenColumns.includes('odenecekToplam') && <TableCell className={`text-right sticky right-0 bg-slate-50 group-hover:bg-blue-100/50 border-l z-20 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)]`}>
+                        <span className={`text-[10px] md:text-xs font-black px-1.5 py-0.5 md:px-2 md:py-1 rounded ${displayBalance + lateFee > 0 ? "text-red-700 bg-red-100" : "text-emerald-700 bg-emerald-100"}`}>
+                          {formatNumber(displayBalance + lateFee)}
+                        </span>
+                      </TableCell>}
                     </TableRow>
                   );
                 })}
@@ -1066,10 +1095,15 @@ const DuesSchedule = () => {
                   ))}
                   {!hiddenColumns.includes('yilToplam') && <TableCell />}
                   {!hiddenColumns.includes('toplamOdenen') && <TableCell className="text-right text-emerald-300">{formatNumber(dues.reduce((s, r) => s + r.toplamOdenen, 0))}</TableCell>}
-                  {!hiddenColumns.includes('borc') && <TableCell />}
-                  {!hiddenColumns.includes('gecikmeCezasi') && <TableCell />}
-                  {!hiddenColumns.includes('odenecekToplam') && <TableCell className="text-right sticky right-0 bg-gray-800 text-white">{formatNumber(dues.reduce((s, r) => s + r.odenecekToplamBorc, 0))}</TableCell>}
-                  {showLateFees && <TableCell />}
+                  {!hiddenColumns.includes('borc') && <TableCell className="text-right text-amber-300 font-bold tracking-tight">{formatNumber(dues.reduce((s, r) => s + Math.max(0, calculateBalance(r, apartments.find(a => a.daireNo === r.daireNo && a.blok === r.blok)?.isManager || false, apartments.find(a => a.daireNo === r.daireNo && a.blok === r.blok)?.asansorTabi || false)), 0))}</TableCell>}
+                  {!hiddenColumns.includes('gecikmeCezasi') && <TableCell className="text-right text-red-300 font-bold">{formatNumber(dues.reduce((s, r) => s + calculateLateFee(r, apartments.find(a => a.daireNo === r.daireNo && a.blok === r.blok)?.isManager || false), 0))}</TableCell>}
+                  {!hiddenColumns.includes('odenecekToplam') && <TableCell className="text-right sticky right-0 bg-gray-900 border-l border-gray-600 text-white font-black z-10 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.3)]">{formatNumber(dues.reduce((s, r) => {
+                      const apt = apartments.find(a => a.daireNo === r.daireNo && a.blok === r.blok);
+                      const isManager = apt?.isManager || false;
+                      const bal = calculateBalance(r, isManager, apt?.asansorTabi || false);
+                      const late = calculateLateFee(r, isManager);
+                      return s + bal + late;
+                  }, 0))}</TableCell>}
                 </TableRow>
               </TableFooter>
             </Table>

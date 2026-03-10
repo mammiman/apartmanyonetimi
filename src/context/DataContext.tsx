@@ -39,6 +39,7 @@ export interface LogEntry {
 export interface Announcement {
     id: string;
     message: string;
+    photoId?: string;
     date: string;
 }
 
@@ -87,6 +88,7 @@ interface DataContextType {
     addApartment: (apt: Apartment) => void;
     deleteApartment: (daireNo: number, blok?: string) => void;
     updateStaffRecord: (month: string, data: Partial<StaffRecord>) => void;
+    bulkUpdateStaffRecords: (updates: { month: string, data: Partial<StaffRecord> }[]) => Promise<void>;
     addLedgerEntry: (month: string, type: 'gelir' | 'gider', entry: Omit<LedgerRow, 'id'>) => void;
     deleteLedgerEntry: (month: string, type: 'gelir' | 'gider', id: number) => void;
     addDuesColumn: (name: string, fee?: number) => void;
@@ -101,7 +103,7 @@ interface DataContextType {
     isDbAvailable: boolean;
     retryRemoteData: () => Promise<void>;
     refreshData: (silent?: boolean) => Promise<void>;
-    addAnnouncement: (message: string) => void;
+    addAnnouncement: (message: string, photoId?: string) => void;
     deleteAnnouncement: (id: string) => void;
 }
 
@@ -314,17 +316,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 remoteLogs,
                 remoteSummary,
                 remoteExpenseItems,
-                allLedgerEntries
+                allLedgerEntries,
+                remoteAnnouncements
             ] = await Promise.all([
                 api.fetchBuildingSettings(buildingId).catch(() => ({} as api.BuildingSettings)),
                 api.fetchApartments(buildingId).catch(() => null),
-                api.fetchDues(year).catch(() => null),
+                api.fetchDues(year, buildingId).catch(() => null),
                 api.fetchDuesColumns(buildingId).catch(() => null),
                 api.fetchStaffRecords(buildingId).catch(() => null),
                 api.fetchLogs(buildingId).catch(() => null),
                 api.fetchMonthlySummary(buildingId, year).catch(() => { dbTablesAvailable.current.monthly_summary = false; return null; }),
                 api.fetchExpenseItems(buildingId).catch(() => { dbTablesAvailable.current.expense_items = false; return null; }),
-                api.fetchAllLedgerEntries(buildingId).catch(() => ({} as Record<string, any>)),
+                api.fetchAllLedgerEntries(buildingId).catch(() => null), // Changed to return null on error
+                api.fetchAnnouncements(buildingId).catch(() => []),
             ]);
 
             // 3) Apartments - DB'den gelirse DB verisini kullan
@@ -335,6 +339,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // 4) Dues - DB'den gelirse DB verisini kullan
             if (remoteDues && remoteDues.length > 0) {
                 setDues(remoteDues);
+            } else if (remoteDues === null) {
+                // Fetch failed or returned null (but not empty array)
+                console.warn('[DB] Dues fetch returned null, keeping current state');
             }
 
             // 5) Dues Columns
@@ -342,14 +349,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setDuesColumns(remoteCols);
             }
 
-            // 6) Staff Records
-            if (remoteStaff && remoteStaff.length > 0) {
-                setStaffRecords(remoteStaff);
+            // 6) Staff Records - Sıralama ve Merge işlemini yap
+            if (remoteStaff) {
+                setStaffRecords(prev => {
+                    const newRecords = [...prev];
+                    remoteStaff.forEach(remote => {
+                        const idx = newRecords.findIndex(r => r.ay === remote.ay);
+                        if (idx !== -1) {
+                            newRecords[idx] = { ...newRecords[idx], ...remote };
+                        }
+                    });
+                    return newRecords;
+                });
+            } else if (remoteStaff === null) {
+                console.warn('[DB] Staff records fetch failed, keeping current state');
             }
 
-            // 7) Ledger entries - zaten paralel çekildi, sadece işle
-            const newLedger = { ...initialLedgerData };
+            // 7) Ledger entries - Hata kontrolü ekle
             if (allLedgerEntries && Object.keys(allLedgerEntries).length > 0) {
+                const newLedger = { ...initialLedgerData };
                 const fixEntries = (rows: any[], month: string) => rows.map(r => ({
                     ...r,
                     displayAciklama: r.displayAciklama && !r.displayAciklama.startsWith('aidat_dues_')
@@ -369,8 +387,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         };
                     }
                 }
+                setLedger(newLedger);
+            } else if (allLedgerEntries === null) {
+                console.warn('[DB] Ledger fetch failed, keeping current state');
             }
-            setLedger(newLedger);
 
             // 7) Logs
             if (remoteLogs) {
@@ -429,15 +449,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 });
             }
 
-            // 10) Expense Items - DB'den gelirse DB verisini kullan
-            if (remoteExpenseItems && remoteExpenseItems.length > 0) {
-                setExpenseItems(remoteExpenseItems.map((item, idx) => ({
-                    id: item.id,
-                    description: item.description,
-                    amount: item.amount,
-                    quantity: item.quantity,
-                    unit: item.unit,
-                })));
+            // 10) Expense Items - Akıllı merge (ID veya Açıklama ile eşle)
+            if (remoteExpenseItems) {
+                setExpenseItems(prev => {
+                    const merged = [...prev];
+                    remoteExpenseItems.forEach(remote => {
+                        const idx = merged.findIndex(i => i.id === remote.id || i.description === remote.description);
+                        const newItem = {
+                            id: remote.id,
+                            description: remote.description,
+                            amount: remote.amount,
+                            quantity: remote.quantity,
+                            unit: remote.unit,
+                        };
+                        if (idx !== -1) {
+                            merged[idx] = newItem;
+                        } else {
+                            merged.push(newItem);
+                        }
+                    });
+                    return merged;
+                });
+            }
+
+            // 11) Announcements
+            if (remoteAnnouncements && remoteAnnouncements.length > 0) {
+                setAnnouncements(remoteAnnouncements);
             }
 
         } catch (err) {
@@ -875,16 +912,30 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const updateStaffRecord = (month: string, data: Partial<StaffRecord>) => {
-        api.updateStaffRecord(month, data, buildingId).catch(console.error);
+        bulkUpdateStaffRecords([{ month, data }]);
+    };
+
+    const bulkUpdateStaffRecords = async (updates: { month: string, data: Partial<StaffRecord> }[]) => {
+        // Optimistic Update
         setStaffRecords(prev => {
-            const updated = prev.map(rec => rec.ay === month ? { ...rec, ...data } : rec);
+            let nextRecords = [...prev];
+            updates.forEach(u => {
+                nextRecords = nextRecords.map(rec => rec.ay === u.month ? { ...rec, ...u.data } : rec);
+            });
+            return nextRecords;
+        });
+
+        // Loop through updates for ledger sync and DB calls
+        for (const u of updates) {
+            const { month, data } = u;
+            api.updateStaffRecord(month, data, buildingId).catch(err => {
+                console.error(`DB fail for ${month}:`, err);
+                toast.error(`Veritabanına kaydedilemedi (${month}): ${err.message || 'Hata'}`);
+            });
 
             if (data.toplamOdenen !== undefined) {
                 const amount = data.toplamOdenen;
                 const ledgerTag = `staff_payment_${month}`;
-
-                // Sync with DB Ledger
-                // First delete existing entry with that tag to avoid duplicates in DB
                 const existingInContext = ledger[month]?.giderler.find(g => g.aciklama === ledgerTag);
 
                 const entry: Omit<LedgerRow, 'id'> = {
@@ -899,9 +950,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                 if (existingInContext) {
                     api.deleteLedgerEntry(existingInContext.id).then(() => {
-                        if (amount > 0) {
-                            api.createLedgerEntry(month, 'gider', entry, buildingId).catch(console.error);
-                        }
+                        if (amount > 0) api.createLedgerEntry(month, 'gider', entry, buildingId).catch(console.error);
                     }).catch(console.error);
                 } else if (amount > 0) {
                     api.createLedgerEntry(month, 'gider', entry, buildingId).catch(console.error);
@@ -913,30 +962,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                     if (amount > 0) {
                         const maxId = filteredGiderler.length > 0 ? Math.max(...filteredGiderler.map(r => r.id)) : 0;
-                        const newEntry = {
-                            id: maxId + 1,
-                            tarih: new Date().toLocaleDateString('tr-TR'),
-                            aciklama: ledgerTag,
-                            kategori: 'Personel Ödemesi',
-                            tutar: amount,
-                            tip: 'gider' as const,
-                            ay: month,
-                            displayAciklama: `${month} Ayı Personel Ödemesi (${staffName})`
-                        };
+                        const newEntry = { ...entry, id: maxId + 1 };
                         return { ...prevLedger, [month]: { ...monthData, giderler: [...filteredGiderler, newEntry] } };
                     } else {
                         return { ...prevLedger, [month]: { ...monthData, giderler: filteredGiderler } };
                     }
                 });
             }
-
-            return updated;
-        });
-        toast.success(`${month} dönemi personel kaydı güncellendi.`);
+        }
+        toast.success(`Personel kayıtları güncellendi.`);
     };
 
     const addLedgerEntry = (month: string, type: 'gelir' | 'gider', entry: Omit<LedgerRow, 'id'>) => {
-        api.createLedgerEntry(month, type, entry, buildingId).catch(console.error);
+        api.createLedgerEntry(month, type, entry, buildingId).then(() => {
+            toast.success("Kayıt veritabanına eklendi.");
+        }).catch(err => {
+            console.error("DB ledger error", err);
+            toast.error(`Veritabanına kaydedilemedi: ${err.message || 'Hata'}`);
+        });
         addLog("ISLETME_DEFTERI_EKLE", `${month} - ${type}: ${entry.aciklama} (${entry.tutar} TL)`);
         setLedger(prev => {
             const monthData = prev[month] || { giderler: [], gelirler: [] };
@@ -1137,7 +1180,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updateDevir = (daireNo: number, amount: number, blok?: string) => {
         // DB'ye kaydet
         const apt = apartments.find(a => a.daireNo === daireNo && (blok === undefined || a.blok === blok));
-        api.updateCarriedDebt(daireNo, amount, year, blok).catch(console.error);
+        api.updateCarriedDebt(daireNo, amount, year, buildingId, blok).catch(err => {
+            console.error("DB devir error", err);
+            toast.error("Devir borcu kaydedilemedi!");
+        });
 
         setDues(prev => prev.map(d => {
             if (d.daireNo === daireNo && (blok === undefined || d.blok === blok)) {
@@ -1214,13 +1260,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setDuesColumnFees(prev => ({ ...prev, [name]: fee }));
     };
 
-    const addAnnouncement = (message: string) => {
-        setAnnouncements(prev => [{ id: Date.now().toString(), message, date: new Date().toLocaleDateString('tr-TR') }, ...prev]);
+    const addAnnouncement = async (message: string, photoId?: string) => {
+        const newAnn: Announcement = {
+            id: Date.now().toString(),
+            message,
+            photoId: photoId,
+            date: new Date().toLocaleDateString('tr-TR')
+        };
+        setAnnouncements(prev => [newAnn, ...prev]);
+        if (buildingId && buildingId !== 'default') {
+            await api.createAnnouncement(buildingId, message, photoId).catch(console.error);
+        }
         toast.success("Duyuru eklendi.");
     };
 
-    const deleteAnnouncement = (id: string) => {
+    const deleteAnnouncement = async (id: string) => {
         setAnnouncements(prev => prev.filter(a => a.id !== id));
+        await api.deleteAnnouncement(id).catch(console.error);
         toast.success("Duyuru silindi.");
     };
 
@@ -1252,6 +1308,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         staffRole,
         updateStaffInfo,
         updateStaffRecord,
+        bulkUpdateStaffRecords,
         addLedgerEntry,
         deleteLedgerEntry,
         addDuesColumn,

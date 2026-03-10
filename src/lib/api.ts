@@ -278,12 +278,16 @@ export const deleteApartment = async (apartmentNumber: number, block?: string): 
 };
 
 // Dues API
-export const fetchDues = async (year: number): Promise<MonthlyDues[]> => {
+export const fetchDues = async (year: number, buildingId?: string): Promise<MonthlyDues[]> => {
     if (!(await waitForDb())) return [];
     // Fetch apartments first
-    const { data: apartments, error: aptError } = await supabase
+    let query = supabase
         .from('apartments')
         .select('id, apartment_number, resident_name, block');
+
+    if (buildingId) query = query.eq('building_id', buildingId);
+
+    const { data: apartments, error: aptError } = await query;
 
     if (aptError) {
         handleDbError(aptError, 'fetchDues.apartments');
@@ -342,6 +346,7 @@ export const updateCarriedDebt = async (
     apartmentNo: number,
     amount: number,
     year: number,
+    buildingId?: string,
     block?: string
 ): Promise<void> => {
     if (!(await waitForDb())) return;
@@ -353,6 +358,8 @@ export const updateCarriedDebt = async (
         .eq('apartment_number', apartmentNo);
 
     if (block) aptQuery = aptQuery.eq('block', block);
+    if (buildingId) aptQuery = aptQuery.eq('building_id', buildingId);
+
     const { data: apt, error: aptError } = await aptQuery.maybeSingle();
 
     if (aptError || !apt) {
@@ -715,12 +722,16 @@ export const fetchAllLedgerEntries = async (buildingId?: string): Promise<Record
 
     if (buildingId) query = query.eq('building_id', buildingId);
 
+    console.log(`[API] Fetching all ledger entries for building: ${buildingId}`);
     const { data, error } = await query;
 
     if (error) {
+        console.error(`[API] fetchAllLedgerEntries error:`, error);
         handleDbError(error, 'fetchAllLedgerEntries');
         throw error;
     }
+
+    console.log(`[API] Fetched ${data?.length || 0} ledger entries`);
 
     const result: Record<string, { gelirler: LedgerRow[]; giderler: LedgerRow[] }> = {};
 
@@ -742,6 +753,7 @@ export const fetchAllLedgerEntries = async (buildingId?: string): Promise<Record
             sakinAdi: entry.sakin_adi || undefined,
             ay: entry.ay || month,
             tip: entry.type === 'income' ? 'gelir' : 'gider',
+            photoId: entry.photo_id || undefined,
         };
 
         if (entry.type === 'income') {
@@ -777,15 +789,20 @@ export const createLedgerEntry = async (
         ay: e.ay || month,
     };
     if (buildingId) insertData.building_id = buildingId;
+    if (e.photoId) insertData.photo_id = e.photoId; // Only send if present
+
+    console.log(`[API] Creating ledger entry for ${month} (${type}):`, entry.aciklama);
 
     const { error } = await supabase
         .from('ledger_entries')
         .insert(insertData);
 
     if (error) {
+        console.error(`[API] createLedgerEntry error:`, error);
         handleDbError(error, 'createLedgerEntry');
         throw error;
     }
+    console.log(`[API] Ledger entry created successfully`);
 };
 
 /**
@@ -887,36 +904,41 @@ export const fetchStaffRecords = async (buildingId?: string): Promise<StaffRecor
     return data.map((record: any) => ({
         ay: record.month,
         maas: record.manager_salary || 0,
-        mesai: 0,
-        odenen: 0,
-        avans: 0,
-        alacak: 0,
-        toplamOdenen: (record.manager_salary || 0) + (record.cleaner_salary || 0),
+        mesai: record.mesai || 0,
+        odenen: record.odenen || 0,
+        avans: record.avans || 0,
+        alacak: record.alacak || 0,
+        toplamOdenen: record.toplam_odenen || 0,
     }));
 };
 
 export const updateStaffRecord = async (month: string, updates: Partial<StaffRecord>, buildingId?: string): Promise<void> => {
     if (!(await waitForDb())) return;
     const dbUpdates: any = {};
-    if ((updates as any).yoneticiMaasi !== undefined) dbUpdates.manager_salary = (updates as any).yoneticiMaasi;
-    if ((updates as any).temizlikciMaasi !== undefined) dbUpdates.cleaner_salary = (updates as any).temizlikciMaasi;
-    // Also support standard StaffRecord fields
     if (updates.maas !== undefined) dbUpdates.manager_salary = updates.maas;
-    if (updates.toplamOdenen !== undefined) dbUpdates.cleaner_salary = updates.toplamOdenen;
+    if (updates.mesai !== undefined) dbUpdates.mesai = updates.mesai;
+    if (updates.odenen !== undefined) dbUpdates.odenen = updates.odenen;
+    if (updates.avans !== undefined) dbUpdates.avans = updates.avans;
+    if (updates.alacak !== undefined) dbUpdates.alacak = updates.alacak;
+    if (updates.toplamOdenen !== undefined) dbUpdates.toplam_odenen = updates.toplamOdenen;
 
     const upsertData: any = { month, ...dbUpdates };
     if (buildingId) upsertData.building_id = buildingId;
 
+    console.log(`[API] Updating staff record for ${month} in building ${buildingId}`);
+
     const { error } = await supabase
         .from('staff_records')
         .upsert(upsertData, {
-            onConflict: 'month'
+            onConflict: 'building_id,month'
         });
 
     if (error) {
+        console.error(`[API] updateStaffRecord error:`, error);
         handleDbError(error, 'updateStaffRecord');
         throw error;
     }
+    console.log(`[API] Staff record updated successfully`);
 };
 
 // Logs API
@@ -1120,23 +1142,27 @@ export const fetchExpenseItems = async (buildingId: string): Promise<DbExpenseIt
     })) || null;
 };
 
-export const saveExpenseItem = async (
-    buildingId: string,
-    item: { description: string; amount: number; quantity: number; unit: string },
-    sortOrder: number = 0
-): Promise<number | null> => {
+export const saveExpenseItem = async (buildingId: string, item: any, sortOrder: number): Promise<number | null> => {
     if (!(await waitForDb())) return null;
+    
+    const upsertData: any = {
+        building_id: buildingId,
+        description: item.description,
+        amount: item.amount,
+        quantity: item.quantity,
+        unit: item.unit,
+        sort_order: sortOrder,
+    };
+    
+    // Eğer ID varsa onu kullan (güncelleme için)
+    if (item.id && typeof item.id === 'number') {
+        upsertData.id = item.id;
+    }
+
     const { data, error } = await supabase
         .from('expense_items')
-        .upsert({
-            building_id: buildingId,
-            description: item.description,
-            amount: item.amount,
-            quantity: item.quantity,
-            unit: item.unit,
-            sort_order: sortOrder,
-        }, {
-            onConflict: 'building_id,description'
+        .upsert(upsertData, {
+            onConflict: item.id && typeof item.id === 'number' ? 'id' : 'building_id,description'
         })
         .select('id')
         .single();
@@ -1159,5 +1185,60 @@ export const deleteExpenseItem = async (id: number): Promise<void> => {
     if (error) {
         handleDbError(error, 'deleteExpenseItem');
         console.warn('Failed to delete expense item:', error.message);
+    }
+};
+
+// Announcements
+export const fetchAnnouncements = async (buildingId: string): Promise<any[]> => {
+    if (!(await waitForDb())) return [];
+    const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .eq('building_id', buildingId)
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        handleDbError(error, 'fetchAnnouncements');
+        return [];
+    }
+    return (data || []).map(a => ({
+        id: a.id,
+        message: a.message,
+        photoId: a.photo_id,
+        date: new Date(a.created_at).toLocaleDateString('tr-TR')
+    }));
+};
+
+export const createAnnouncement = async (buildingId: string, message: string, photoId?: string): Promise<any> => {
+    if (!(await waitForDb())) return null;
+    const insertData: any = {
+        building_id: buildingId,
+        message: message,
+    };
+    if (photoId) insertData.photo_id = photoId; // Only send if present
+
+    const { data, error } = await supabase
+        .from('announcements')
+        .insert(insertData)
+        .select()
+        .single();
+
+    if (error) {
+        handleDbError(error, 'createAnnouncement');
+        throw error;
+    }
+    return data;
+};
+
+export const deleteAnnouncement = async (id: string): Promise<void> => {
+    if (!(await waitForDb())) return;
+    const { error } = await supabase
+        .from('announcements')
+        .delete()
+        .eq('id', id);
+
+    if (error) {
+        handleDbError(error, 'deleteAnnouncement');
+        throw error;
     }
 };

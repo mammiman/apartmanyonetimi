@@ -35,6 +35,7 @@ export interface LedgerRow {
   displayAciklama?: string;
   tutar: number;
   kategori: string;
+  photoId?: string;
   tip?: 'gelir' | 'gider';
   ay?: string;
 }

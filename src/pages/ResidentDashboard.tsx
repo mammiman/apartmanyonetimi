@@ -47,9 +47,16 @@ const ResidentDashboard = () => {
     const residentSessionStr = localStorage.getItem('residentSession');
     const residentSession = JSON.parse(residentSessionStr || '{}');
     const apartmentId = residentSession.apartmentId;
+    const blok = residentSession.blok;
 
-    let myApartment = apartments.find(apt => apt.daireNo === apartmentId);
-    let myDues = dues.find(d => d.daireNo === apartmentId);
+    let myApartment = apartments.find(apt => 
+        apt.daireNo === apartmentId && 
+        (blok ? apt.blok === blok : !apt.blok)
+    );
+    let myDues = dues.find(d => 
+        d.daireNo === apartmentId && 
+        (blok ? d.blok === blok : !d.blok)
+    );
 
     // Fallback: localStorage'da daire verisi yoksa (farklı cihazdan giriş),
     // residentSession'daki bilgileri kullan
@@ -190,6 +197,36 @@ const ResidentDashboard = () => {
         <Layout>
             <div className="animate-fade-in space-y-4 max-w-3xl mx-auto p-3 md:p-6 mb-20">
 
+                {/* İlanlar ve Duyurular (Eğer varsa göster) */}
+                {announcements && announcements.length > 0 && (
+                    <Card className="shadow-md border-purple-100 dark:border-purple-900 bg-gradient-to-br from-purple-50 to-white dark:from-purple-900/20 dark:to-background">
+                        <CardHeader className="pb-2 pt-4 flex flex-row items-center gap-2">
+                            <Bell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                            <CardTitle className="text-base text-purple-900 dark:text-purple-100">İlanlar ve Duyurular</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3 pb-4">
+                            {announcements.map((a) => (
+                                <div key={a.id} className="p-3 bg-white/60 dark:bg-black/20 rounded-lg border border-purple-200/50 dark:border-purple-800/50 flex flex-col gap-1 relative group">
+                                    <div className="flex justify-between items-start gap-2">
+                                        <p className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-snug">{a.message}</p>
+                                        {a.photoId && (
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-purple-600 hover:bg-purple-100 flex-shrink-0"
+                                                onClick={() => handleViewPhoto(a.photoId!)}
+                                            >
+                                                <ImageIcon className="w-4 h-4" />
+                                            </Button>
+                                        )}
+                                    </div>
+                                    <span className="text-xs text-purple-600/70 dark:text-purple-400/70">{a.date}</span>
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                )}
+
                 {/* ═══ İCRA UYARISI ═══ */}
                 {hasIcraRisk && (
                     <div className="relative overflow-hidden rounded-2xl border-2 border-red-500 bg-gradient-to-r from-red-600 to-red-700 shadow-xl">
@@ -198,16 +235,16 @@ const ResidentDashboard = () => {
                                 <ShieldAlert className="w-8 h-8" />
                             </div>
                             <div className="flex-1 text-center sm:text-left">
-                                <h2 className="text-xl font-extrabold uppercase mb-1">⚠️ İcra Takibi Uyarısı</h2>
-                                <p className="text-red-100 text-sm">
+                                <h2 className="text-lg md:text-xl font-extrabold uppercase mb-1">⚠️ İcra Takibi Uyarısı</h2>
+                                <p className="text-red-100 text-xs md:text-sm">
                                     <strong>{maxConsecutive} ay</strong> üst üste aidat ödemesi yapılmamıştır.
                                     Yasal düzenlemeler gereğince <strong>icra takibi başlatılacaktır.</strong>{" "}
                                     Birikmiş borcunuzu (<strong>{formatCurrency(totalDebt)}</strong>) lütfen en kısa sürede ödeyiniz.
                                 </p>
                             </div>
-                            <div className="bg-white/20 rounded-xl px-4 py-2 text-center shrink-0">
-                                <p className="text-xs text-red-200 uppercase tracking-wider">Toplam Borç</p>
-                                <p className="text-2xl font-black">{formatCurrency(totalDebt)}</p>
+                            <div className="bg-white/20 rounded-xl px-4 py-2 text-center shrink-0 w-full sm:w-auto">
+                                <p className="text-[10px] text-red-200 uppercase tracking-wider">Toplam Borç</p>
+                                <p className="text-xl md:text-2xl font-black">{formatCurrency(totalDebt)}</p>
                             </div>
                         </div>
                     </div>
@@ -223,7 +260,7 @@ const ResidentDashboard = () => {
                             <div>
                                 <h2 className="text-lg font-extrabold mb-0.5">✅ Teşekkür Ederiz!</h2>
                                 <p className="text-emerald-100 text-sm">
-                                    {currentMonthName} ayı aidatınızı zamanında ödediğiniz için teşekkür ederiz, {myApartment.sakinAdi}! 🙏
+                                    {currentMonthName} ayı aidatınızı zamanında ödediğiniz için teşekkür ederiz, {myApartment.sakinAdi}!
                                 </p>
                             </div>
                         </div>
@@ -250,22 +287,22 @@ const ResidentDashboard = () => {
                             </span>
                         </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
                         <Button
                             variant="outline"
                             onClick={handleRefresh}
                             disabled={isManualRefreshing}
                             size="sm"
-                            className="gap-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+                            className="flex-1 sm:flex-none gap-2 text-blue-600 border-blue-200 hover:bg-blue-50 h-9"
                         >
                             <RefreshCw className={`w-4 h-4 ${isManualRefreshing ? 'animate-spin' : ''}`} />
-                            {isManualRefreshing ? 'Yenileniyor...' : 'Yenile'}
+                            <span className="md:inline">{isManualRefreshing ? '...' : 'Yenile'}</span>
                         </Button>
-                        <Button variant="outline" onClick={handleExport} size="sm" className="gap-2">
-                            <Download className="w-4 h-4" /> Ekstre
+                        <Button variant="outline" onClick={handleExport} size="sm" className="flex-1 sm:flex-none gap-2 h-9">
+                            <Download className="w-4 h-4" /> <span className="md:inline">Ekstre</span>
                         </Button>
-                        <Button variant="destructive" onClick={handleLogout} size="sm" className="gap-2">
-                            <LogOut className="w-4 h-4" /> Çıkış
+                        <Button variant="destructive" onClick={handleLogout} size="sm" className="flex-1 sm:flex-none gap-2 h-9">
+                            <LogOut className="w-4 h-4" /> <span className="md:inline">Çıkış</span>
                         </Button>
                     </div>
                 </div>
@@ -274,18 +311,18 @@ const ResidentDashboard = () => {
                 <Card className="border-none shadow-lg bg-gradient-to-br from-slate-900 to-slate-800 text-white overflow-hidden">
                     <CardContent className="p-6 flex flex-col md:flex-row justify-between items-center gap-6">
                         <div className="text-center md:text-left flex-1">
-                            <p className="text-slate-400 text-sm flex items-center gap-2 justify-center md:justify-start mb-1">
+                            <p className="text-slate-400 text-xs md:text-sm flex items-center gap-2 justify-center md:justify-start mb-1">
                                 <Calendar className="w-4 h-4" /> {currentMonthName} {year} — Hesap Durumu
                             </p>
-                            <h2 className={`text-4xl font-bold mt-1 ${totalDebt > 1 ? "text-red-400" : totalDebt < -1 ? "text-emerald-400" : "text-white"}`}>
+                            <h2 className={`text-2xl md:text-4xl font-bold mt-1 ${totalDebt > 1 ? "text-red-400" : totalDebt < -1 ? "text-emerald-400" : "text-white"}`}>
                                 {totalDebt > 1 ? `${formatCurrency(totalDebt)} Borç` : totalDebt < -1 ? `${formatCurrency(Math.abs(totalDebt))} Alacak` : "Borcunuz Yoktur"}
                             </h2>
                             {totalDebt > 1 && !hasIcraRisk && (
-                                <p className="text-sm text-red-300 mt-2 flex items-center gap-2 bg-red-500/10 p-2 rounded w-fit">
-                                    <AlertCircle className="w-4 h-4" /> Lütfen ödemenizi yapınız.
+                                <p className="text-xs md:text-sm text-red-300 mt-2 flex items-center gap-2 bg-red-500/10 p-2 rounded w-full md:w-fit justify-center md:justify-start">
+                                    <AlertCircle className="w-4 h-4 border-none" /> Lütfen ödemenizi yapınız.
                                 </p>
                             )}
-                            {isManager && <p className="text-xs text-slate-400 mt-2 italic">Yönetici hesabı — aidat muafiyeti</p>}
+                            {isManager && <p className="text-[10px] md:text-xs text-slate-400 mt-2 italic">Yönetici hesabı — aidat muafiyeti</p>}
                         </div>
                         <div className="flex gap-4 md:gap-6 text-center bg-white/10 p-4 rounded-xl border border-white/10 w-full md:w-auto justify-center">
                             <div>
@@ -307,24 +344,6 @@ const ResidentDashboard = () => {
                         </div>
                     </CardContent>
                 </Card>
-
-                {/* İlanlar ve Duyurular (Eğer varsa göster) */}
-                {announcements && announcements.length > 0 && (
-                    <Card className="shadow-md border-purple-100 dark:border-purple-900 bg-gradient-to-br from-purple-50 to-white dark:from-purple-900/20 dark:to-background">
-                        <CardHeader className="pb-2 pt-4 flex flex-row items-center gap-2">
-                            <Bell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                            <CardTitle className="text-base text-purple-900 dark:text-purple-100">İlanlar ve Duyurular</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3 pb-4">
-                            {announcements.map((a) => (
-                                <div key={a.id} className="p-3 bg-white/60 dark:bg-black/20 rounded-lg border border-purple-200/50 dark:border-purple-800/50 flex flex-col gap-1">
-                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-snug">{a.message}</p>
-                                    <span className="text-xs text-purple-600/70 dark:text-purple-400/70">{a.date}</span>
-                                </div>
-                            ))}
-                        </CardContent>
-                    </Card>
-                )}
 
                 {/* Aksiyon Butonları */}
                 <div className="grid grid-cols-2 gap-3">
@@ -460,21 +479,21 @@ const ResidentDashboard = () => {
                                         <tbody>
                                             {allLedgerExpenses.map((g, i) => (
                                                 <tr key={i} className="border-b last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap font-medium">{g.ay}</td>
-                                                    <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{g.tarih || '—'}</td>
-                                                    <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                                                    <td className="px-3 py-3 text-slate-500 whitespace-nowrap font-medium text-[10px]">{g.ay}</td>
+                                                    <td className="px-3 py-3 text-slate-400 whitespace-nowrap text-[10px]">{g.tarih || '—'}</td>
+                                                    <td className="px-3 py-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
                                                         {g.kategori ? (
-                                                            <span className="inline-flex px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px]">{g.kategori}</span>
+                                                            <span className="inline-flex px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[9px]">{g.kategori}</span>
                                                         ) : '—'}
                                                     </td>
-                                                    <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                                                    <td className="px-3 py-3 text-slate-700 dark:text-slate-300 min-w-[120px]">
                                                         <div className="flex items-center gap-2">
-                                                            <span>{g.aciklama}</span>
+                                                            <span className="text-[11px] leading-tight">{g.aciklama}</span>
                                                             {g.photoId && (
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="icon"
-                                                                    className="h-6 w-6 text-emerald-600 shrink-0 hover:bg-emerald-50"
+                                                                    className="h-7 w-7 text-emerald-600 shrink-0 hover:bg-emerald-50 border border-emerald-100"
                                                                     onClick={() => handleViewPhoto(g.photoId!)}
                                                                 >
                                                                     <ImageIcon className="h-3.5 w-3.5" />
@@ -482,7 +501,7 @@ const ResidentDashboard = () => {
                                                             )}
                                                         </div>
                                                     </td>
-                                                    <td className="px-3 py-2 text-right font-bold text-red-600 dark:text-red-400 whitespace-nowrap">{formatCurrency(g.tutar)}</td>
+                                                    <td className="px-3 py-3 text-right font-bold text-red-600 dark:text-red-400 whitespace-nowrap text-[11px]">{formatCurrency(g.tutar)}</td>
                                                 </tr>
                                             ))}
                                         </tbody>

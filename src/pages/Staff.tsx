@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 const Staff = () => {
-  const { staffRecords, updateStaffRecord, year, staffName, staffRole, updateStaffInfo, isLoading, ledger } = useData();
+  const { staffRecords, updateStaffRecord, bulkUpdateStaffRecords, year, staffName, staffRole, updateStaffInfo, isLoading, ledger } = useData();
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(staffName);
   const [tempRole, setTempRole] = useState(staffRole);
@@ -67,26 +67,30 @@ const Staff = () => {
     exportToCSV(`${tempName}_Bordro_${year}`, headers, rows);
   };
 
-  const toggleEdit = () => {
+  const toggleEdit = async () => {
     if (isEditing) {
       // Save everything
       updateStaffInfo(tempName, tempRole);
 
       // Update all records that changed
-      localRecords.forEach((record, idx) => {
+      const changedRecords = localRecords.filter((record, idx) => {
         const original = staffRecords[idx];
-        if (JSON.stringify(record) !== JSON.stringify(original)) {
-          updateStaffRecord(record.ay, {
-            maas: record.maas,
-            mesai: record.mesai,
-            odenen: record.odenen,
-            avans: record.avans,
-            alacak: record.alacak,
-            toplamOdenen: record.toplamOdenen
-          });
+        return JSON.stringify(record) !== JSON.stringify(original);
+      }).map(record => ({
+        month: record.ay,
+        data: {
+          maas: record.maas,
+          mesai: record.mesai,
+          odenen: record.odenen,
+          avans: record.avans,
+          alacak: record.alacak,
+          toplamOdenen: record.toplamOdenen
         }
-      });
-      toast.success("Değişiklikler kaydedildi.");
+      }));
+
+      if (changedRecords.length > 0) {
+        await bulkUpdateStaffRecords(changedRecords);
+      }
     }
     setIsEditing(!isEditing);
   }

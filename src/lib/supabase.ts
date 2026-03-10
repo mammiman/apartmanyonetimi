@@ -46,8 +46,8 @@ export const signInWithAccessCode = async (accessCode: string) => {
             localStorage.setItem('residentSession', JSON.stringify(residentSession));
             return {
                 user: {
-                    id: `resident_${apt.apartment_number}_${apt.block || 'default'}`,
-                    email: `daire${apt.apartment_number}.${apt.block || 'default'}@resident.local`,
+                    id: `resident_${apt.building_id}_${apt.apartment_number}_${apt.block || 'default'}`,
+                    email: `daire${apt.apartment_number}.${apt.block || 'default'}.${apt.building_id}@resident.local`,
                     role: 'resident'
                 },
                 session: residentSession

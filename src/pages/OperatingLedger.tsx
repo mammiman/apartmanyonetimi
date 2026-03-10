@@ -176,7 +176,7 @@ const OperatingLedger = () => {
     if (entryType === 'gider' && photoFile) {
       const photoId = Date.now().toString();
       savePhoto(photoId, photoFile).catch(() => {});
-      finalDisplayDesc = `${newEntry.aciklama} [PHOTO:${photoId}]`;
+      (newEntry as any).photoId = photoId;
     }
 
     addLedgerEntry(selectedMonth, entryType, {
@@ -186,7 +186,8 @@ const OperatingLedger = () => {
       tutar,
       kategori: newEntry.kategori,
       tip: entryType,
-      ay: selectedMonth
+      ay: selectedMonth,
+      photoId: (newEntry as any).photoId
     } as any);
 
     setIsAddDialogOpen(false);
@@ -759,14 +760,7 @@ const OperatingLedger = () => {
                           ? `${String(row.aciklama).replace('staff_payment_', '')} Ayı Personel Ödemesi`
                           : row.aciklama;
 
-                      let photoId: string | null = null;
-                      if (displayGiderDesc.includes('[PHOTO:')) {
-                         const match = displayGiderDesc.match(/\[PHOTO:(.+?)\]/);
-                         if (match) {
-                           photoId = match[1];
-                           displayGiderDesc = displayGiderDesc.replace(match[0], '').trim();
-                         }
-                      }
+                      const photoId = (row as any).photoId;
 
                       return (
                         <tr key={row.id} className="hover:bg-red-50/50 dark:hover:bg-red-950/10 transition-colors group">

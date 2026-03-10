@@ -533,20 +533,33 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
     }, [monthlySummary, buildingId, year]);
 
-    // Ledger değişince gelir/gider/fark güncelle; kasa ve banka'yı koru
+    // Ledger değişince gelir/gider/fark/kasa güncelle; banka'yı koru (manuel override varsa)
     useEffect(() => {
+        // Devir bakiyesini bul
+        const devirRow = monthlySummary.find(m => m.ay.includes('Devir'));
+        const devirGelir = devirRow ? devirRow.gelir : 0;
+        let cumulativeKasa = devirGelir;
+
         const newSummary = monthlySummary.map(m => {
             const monthData = ledger[m.ay];
             if (!monthData || m.ay.includes("Devir")) return m;
 
             const totalGelir = monthData.gelirler?.reduce((s, r) => s + r.tutar, 0) || 0;
             const totalGider = monthData.giderler?.reduce((s, r) => s + r.tutar, 0) || 0;
+            const fark = totalGelir - totalGider;
+            cumulativeKasa += fark;
+
+            // Banka: kullanıcı manuel override yapmışsa koru, yoksa kasa ile aynı yap
+            const hasBankaOverride = m.banka !== undefined && m.banka !== 0 && m.banka !== m.kasa;
+            const newBanka = hasBankaOverride ? m.banka : cumulativeKasa;
 
             return {
                 ...m,
                 gelir: totalGelir,
                 gider: totalGider,
-                fark: totalGelir - totalGider
+                fark,
+                kasa: cumulativeKasa,
+                banka: newBanka,
             };
         });
 

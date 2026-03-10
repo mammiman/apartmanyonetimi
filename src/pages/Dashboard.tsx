@@ -346,11 +346,18 @@ const Dashboard = () => {
       : 0;
 
     // monthlySummary'den banka bakiyesi (manuel düzenleme destekli)
+    // NOT: ?? operatörü 0'ı null olarak görmez, bu yüzden açıkça kontrol ediyoruz
+    // Kullanıcı banka değerini manuel girmişse (0'dan farklı) onu kullan, yoksa kümülatif kasayı kullan
     const summaryRow = monthlySummary.find(m => m.ay === month);
-    const banka = summaryRow?.banka ?? cumulativeKasa;
+    const hasBankaOverride = summaryRow && summaryRow.banka !== undefined && summaryRow.banka !== 0;
+    const banka = hasBankaOverride ? summaryRow.banka : cumulativeKasa;
 
     return { month, gelir, gider, asansor, diyafon, kasa: cumulativeKasa, banka, fark };
   });
+
+  // Son ayın banka değerini bul (TOPLAM için)
+  const lastRowWithBanka = [...icmalRows].reverse().find(r => r.gelir > 0 || r.gider > 0);
+  const toplamBanka = lastRowWithBanka ? lastRowWithBanka.banka : cumulativeKasa;
 
   const icmalToplam = {
     gelir: icmalRows.reduce((s, r) => s + r.gelir, 0) + devirGelir,
@@ -358,7 +365,7 @@ const Dashboard = () => {
     asansor: icmalRows.reduce((s, r) => s + r.asansor, 0),
     diyafon: icmalRows.reduce((s, r) => s + r.diyafon, 0),
     kasa: cumulativeKasa,
-    banka: cumulativeKasa,
+    banka: toplamBanka,
     fark: icmalRows.reduce((s, r) => s + r.fark, 0) + devirGelir,
   };
 

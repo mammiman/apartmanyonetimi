@@ -33,7 +33,12 @@ const Login = () => {
             localStorage.removeItem('residentSession');
             await signIn(email, password);
             toast.success("Giriş başarılı!");
-            navigate("/");
+            
+            // GitHub Pages HashRouter uyumluluğu için
+            window.location.hash = "#/";
+            setTimeout(() => {
+                window.location.reload();
+            }, 50);
         } catch (error: any) {
             toast.error(error.message || "Giriş başarısız");
         } finally {

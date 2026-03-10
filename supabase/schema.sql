@@ -362,6 +362,7 @@ BEGIN
     'id', a.id,
     'apartment_number', a.apartment_number,
     'resident_name', a.resident_name,
+    'block', a.block,
     'building_id', a.building_id
   ) INTO v_result
   FROM apartments a

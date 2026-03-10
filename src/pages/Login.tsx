@@ -76,13 +76,11 @@ const Login = () => {
             await signInWithAccessCode(accessCode);
             toast.success("Giriş başarılı!");
 
-            // Navigate to resident page using router (handles base path automatically)
-            navigate("/resident");
-
-            // Force a reload after a short delay to ensure context (isResident etc.) is updated correctly
+            // GitHub Pages'te HashRouter base hatası olmaması için direkt hash atıp yeniliyoruz
+            window.location.hash = '#/resident';
             setTimeout(() => {
                 window.location.reload();
-            }, 100);
+            }, 50);
         } catch (error: any) {
             toast.error("Geçersiz erişim kodu");
         } finally {

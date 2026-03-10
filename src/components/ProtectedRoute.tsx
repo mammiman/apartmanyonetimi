@@ -139,7 +139,8 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
                             onClick={() => {
                                 localStorage.removeItem('selectedBuildingId');
                                 supabase.auth.signOut();
-                                window.location.href = "/login";
+                                window.location.hash = "#/login";
+                                window.location.reload();
                             }}
                             className="text-primary hover:underline font-medium"
                         >

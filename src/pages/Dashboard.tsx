@@ -57,7 +57,8 @@ const Dashboard = () => {
     ledger,
     annualElevatorFee,
     updateAnnualElevatorFee,
-    isLoading
+    isLoading,
+    staffName
   } = useData();
 
   if (isLoading) {
@@ -555,7 +556,7 @@ const Dashboard = () => {
                   1 <span className="text-sm font-normal text-muted-foreground">Kişi</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Osman Koka
+                  {staffName}
                 </p>
               </CardContent>
             </Card>

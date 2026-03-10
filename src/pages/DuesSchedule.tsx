@@ -71,20 +71,21 @@ const DuesSchedule = () => {
   // Local edit buffer: key = `${daireNo}_${month}`, value = string
   const [localEditValues, setLocalEditValues] = useState<Record<string, string>>({});
 
-  const getLocalVal = (daireNo: number, month: string, fallback: number) => {
-    const key = `${daireNo}_${month}`;
+  const getLocalVal = (daireNo: number, month: string, fallback: number, blok?: string) => {
+    const key = blok ? `${daireNo}_${blok}_${month}` : `${daireNo}_${month}`;
     return key in localEditValues ? localEditValues[key] : (fallback > 0 ? String(fallback) : '');
   };
 
-  const handleDuesInputChange = (daireNo: number, month: string, val: string) => {
-    setLocalEditValues(prev => ({ ...prev, [`${daireNo}_${month}`]: val }));
+  const handleDuesInputChange = (daireNo: number, month: string, val: string, blok?: string) => {
+    const key = blok ? `${daireNo}_${blok}_${month}` : `${daireNo}_${month}`;
+    setLocalEditValues(prev => ({ ...prev, [key]: val }));
   };
 
-  const handleDuesInputCommit = (daireNo: number, month: string) => {
-    const key = `${daireNo}_${month}`;
+  const handleDuesInputCommit = (daireNo: number, month: string, blok?: string) => {
+    const key = blok ? `${daireNo}_${blok}_${month}` : `${daireNo}_${month}`;
     if (key in localEditValues) {
       const parsed = parseFloat(localEditValues[key]) || 0;
-      updateDuesPayment(daireNo, month, parsed);
+      updateDuesPayment(daireNo, month, parsed, blok);
       setLocalEditValues(prev => { const n = { ...prev }; delete n[key]; return n; });
     }
   };
@@ -93,10 +94,7 @@ const DuesSchedule = () => {
 
   const filteredDues = selectedBlock === "all"
     ? (dues || [])
-    : (dues || []).filter(d => {
-      const apt = apartments.find(a => a.daireNo === d.daireNo);
-      return apt?.blok === selectedBlock;
-    });
+    : (dues || []).filter(d => d.blok === selectedBlock);
   const [tempDuesAmount, setTempDuesAmount] = useState(monthlyDuesAmount);
   const [showFutureMonths, setShowFutureMonths] = useState(false);
   const showLateFees = true;
@@ -766,7 +764,7 @@ const DuesSchedule = () => {
                   </TableHeader>
                   <TableBody>
                     {importPreview?.map((item, idx) => {
-                      const matchedDaire = dues.find(d => d.daireNo === item.daireNo);
+                      const matchedDaire = dues.find(d => d.daireNo === item.daireNo && d.blok === item.blok);
                       return (
                         <TableRow key={idx} className={matchedDaire ? '' : 'bg-yellow-50'}>
                           <TableCell className="text-[10px] font-bold py-1 px-2">{item.daireNo}</TableCell>
@@ -782,7 +780,7 @@ const DuesSchedule = () => {
                   </TableBody>
                 </Table>
               </div>
-              {importPreview && importPreview.some(p => !dues.some(d => d.daireNo === p.daireNo)) && (
+              {importPreview && importPreview.some(p => !dues.some(d => d.daireNo === p.daireNo && d.blok === p.blok)) && (
                 <p className="text-[10px] text-amber-700 mt-2">
                   ⚠ Sarı satırlar sistemde olmayan daireler — import edilmeyecek.
                 </p>
@@ -791,7 +789,7 @@ const DuesSchedule = () => {
             <DialogFooter>
               <Button variant="outline" size="sm" onClick={() => { setImportPreview(null); setIsImportOpen(false); }}>İptal</Button>
               <Button size="sm" onClick={confirmImport} className="bg-green-600 hover:bg-green-700">
-                İçe Aktar ({importPreview?.filter(p => dues.some(d => d.daireNo === p.daireNo)).length || 0} daire)
+                İçe Aktar ({importPreview?.filter(p => dues.some(d => d.daireNo === p.daireNo && d.blok === p.blok)).length || 0} daire)
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -837,7 +835,7 @@ const DuesSchedule = () => {
               </TableHeader>
               <TableBody>
                 {filteredDues.map((row) => {
-                  const apartment = apartments.find(apt => apt.daireNo === row.daireNo);
+                  const apartment = apartments.find(apt => apt.daireNo === row.daireNo && apt.blok === row.blok);
                   const isManager = apartment?.isManager || false;
                   const subjectToElevator = apartment?.asansorTabi || false;
 
@@ -851,7 +849,7 @@ const DuesSchedule = () => {
 
                   return (
                     <TableRow
-                      key={row.daireNo}
+                      key={`${row.blok || ''}-${row.daireNo}`}
                       className={`transition-colors group border-b border-slate-100 ${isManager
                         ? 'bg-purple-50/50 hover:bg-purple-100/50 opacity-60 cursor-not-allowed'
                         : 'hover:bg-blue-50/50'
@@ -870,18 +868,18 @@ const DuesSchedule = () => {
                       {/* DEVİR - Düzenlenebilir */}
                       {!hiddenColumns.includes('devir') && <TableCell className={`text-center text-xs font-medium border-r bg-orange-50/30 ${row.devredenBorc2024 < 0 ? 'text-red-600 font-bold' : 'text-slate-600'}`}>
                         {isEditing ? (
-                          <Input
-                            type="number"
-                            value={getLocalVal(row.daireNo, '_devir', row.devredenBorc2024)}
-                            onChange={(e) => handleDuesInputChange(row.daireNo, '_devir', e.target.value)}
-                            onBlur={() => {
-                              const key = `${row.daireNo}__devir`;
-                              if (key in localEditValues) {
-                                const parsed = parseFloat(localEditValues[key]) || 0;
-                                updateDevir(row.daireNo, parsed);
-                                setLocalEditValues(prev => { const n = { ...prev }; delete n[key]; return n; });
-                              }
-                            }}
+                            <Input
+                              type="number"
+                              value={getLocalVal(row.daireNo, '_devir', row.devredenBorc2024, row.blok)}
+                              onChange={(e) => handleDuesInputChange(row.daireNo, '_devir', e.target.value, row.blok)}
+                              onBlur={() => {
+                                const key = row.blok ? `${row.daireNo}_${row.blok}__devir` : `${row.daireNo}__devir`;
+                                if (key in localEditValues) {
+                                  const parsed = parseFloat(localEditValues[key]) || 0;
+                                  updateDevir(row.daireNo, parsed, row.blok);
+                                  setLocalEditValues(prev => { const n = { ...prev }; delete n[key]; return n; });
+                                }
+                              }}
                             onKeyDown={(e) => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
                             className="h-8 w-20 text-right text-xs px-1 mx-auto"
                           />
@@ -918,26 +916,26 @@ const DuesSchedule = () => {
                           >
                             {isEditing ? (
                               <div className="flex flex-col gap-1">
-                                <Input
-                                  type="number"
-                                  value={getLocalVal(row.daireNo, month, row.odemeler[month] || 0)}
-                                  onChange={(e) => handleDuesInputChange(row.daireNo, month, e.target.value)}
-                                  onBlur={() => handleDuesInputCommit(row.daireNo, month)}
-                                  onKeyDown={(e) => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
-                                  className={`h-8 w-full min-w-[50px] text-right text-xs px-1 ${val > 0 ? 'bg-background font-semibold' : 'bg-background/50'}`}
-                                  placeholder="0"
-                                  disabled={isManager}
-                                />
-                                {!isFullPaid && !isManager && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-6 text-[10px] px-1 bg-green-50 hover:bg-green-100 border-green-300 text-green-700"
-                                    onClick={() => updateDuesPayment(row.daireNo, month, monthlyDuesAmount)}
-                                  >
-                                    ✓ Ödendi
-                                  </Button>
-                                )}
+                                  <Input
+                                    type="number"
+                                    value={getLocalVal(row.daireNo, month, row.odemeler[month] || 0, row.blok)}
+                                    onChange={(e) => handleDuesInputChange(row.daireNo, month, e.target.value, row.blok)}
+                                    onBlur={() => handleDuesInputCommit(row.daireNo, month, row.blok)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
+                                    className={`h-8 w-full min-w-[50px] text-right text-xs px-1 ${val > 0 ? 'bg-background font-semibold' : 'bg-background/50'}`}
+                                    placeholder="0"
+                                    disabled={isManager}
+                                  />
+                                  {!isFullPaid && !isManager && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-6 text-[10px] px-1 bg-green-50 hover:bg-green-100 border-green-300 text-green-700"
+                                      onClick={() => updateDuesPayment(row.daireNo, month, monthlyDuesAmount, row.blok)}
+                                    >
+                                      ✓ Ödendi
+                                    </Button>
+                                  )}
                               </div>
                             ) : (
                               <div className={`py-1 rounded text-xs font-medium ${bgClass}`}>
@@ -960,7 +958,7 @@ const DuesSchedule = () => {
                               <Input
                                 type="number"
                                 value={row.asansorOdemesi || ''}
-                                onChange={(e) => updateElevatorPayment(row.daireNo, parseFloat(e.target.value) || 0)}
+                                onChange={(e) => updateElevatorPayment(row.daireNo, parseFloat(e.target.value) || 0, row.blok)}
                                 className="h-8 w-16 text-right text-xs px-1 mx-auto"
                               />
                               {(row.asansorOdemesi || 0) < annualElevatorFee && (
@@ -968,7 +966,7 @@ const DuesSchedule = () => {
                                   size="sm"
                                   variant="outline"
                                   className="h-6 text-[10px] px-1 bg-indigo-50 hover:bg-indigo-100 border-indigo-300 text-indigo-700"
-                                  onClick={() => updateElevatorPayment(row.daireNo, annualElevatorFee)}
+                                  onClick={() => updateElevatorPayment(row.daireNo, annualElevatorFee, row.blok)}
                                 >
                                   ✓ Öde
                                 </Button>
@@ -1005,7 +1003,7 @@ const DuesSchedule = () => {
                               <Input
                                 type="number"
                                 value={row.extraFees?.[col] || ''}
-                                onChange={(e) => updateExtraFee(row.daireNo, col, parseFloat(e.target.value) || 0)}
+                                onChange={(e) => updateExtraFee(row.daireNo, col, parseFloat(e.target.value) || 0, row.blok)}
                                 className="h-8 w-16 text-right text-xs px-1 mx-auto"
                               />
                               {duesColumnFees[col] > 0 && (row.extraFees?.[col] || 0) < duesColumnFees[col] && !isManager && (
@@ -1013,7 +1011,7 @@ const DuesSchedule = () => {
                                   size="sm"
                                   variant="outline"
                                   className="h-6 text-[10px] px-1 bg-sky-50 hover:bg-sky-100 border-sky-300 text-sky-700"
-                                  onClick={() => updateExtraFee(row.daireNo, col, duesColumnFees[col])}
+                                  onClick={() => updateExtraFee(row.daireNo, col, duesColumnFees[col], row.blok)}
                                 >
                                   ✓ Öde
                                 </Button>

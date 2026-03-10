@@ -32,14 +32,18 @@ export const checkDbConnection = async (): Promise<boolean> => {
                 const err = settingsCheck.error || apartmentsCheck.error;
                 handleDbError(err, 'checkDbConnection');
                 _dbAvailable = false;
-                console.warn('[API] Supabase bağlantısı başarısız - offline mod aktif. Hata:', err?.message);
+                console.warn('[API] Supabase bağlantısı başarısız. Hata:', {
+                    settings: settingsCheck.error?.message,
+                    apartments: apartmentsCheck.error?.message,
+                    code: err?.code
+                });
             } else {
                 _dbAvailable = true;
                 console.log('[API] DB bağlantısı başarılı (Building & Apartments OK).');
             }
-        } catch (err) {
+        } catch (err: any) {
             _dbAvailable = false;
-            console.warn('[API] Supabase erişilemez - offline mod aktif');
+            console.warn('[API] Supabase erişilemez - Beklenmedik hata:', err?.message || err);
         } finally {
             _connectionCheckPromise = null;
         }
@@ -163,6 +167,7 @@ export interface DbApartment {
     resident_name: string;
     owner_name: string;
     has_elevator: boolean;
+    block: string;
 }
 
 export interface DbMonthlyDues {
@@ -211,6 +216,7 @@ export const fetchApartments = async (buildingId?: string): Promise<Apartment[]>
         sakinAdi: apt.resident_name,
         mulkSahibi: apt.owner_name,
         asansorTabi: apt.has_elevator,
+        blok: apt.block,
         accessCode: apt.access_code || undefined,
     }));
 };
@@ -222,6 +228,7 @@ export const createApartment = async (apartment: Omit<Apartment, 'daireNo'> & { 
         resident_name: apartment.sakinAdi,
         owner_name: apartment.mulkSahibi,
         has_elevator: apartment.asansorTabi,
+        block: apartment.blok || ''
     };
     if (apartment.accessCode) insertData.access_code = apartment.accessCode;
     if (buildingId) insertData.building_id = buildingId;
@@ -239,18 +246,18 @@ export const createApartment = async (apartment: Omit<Apartment, 'daireNo'> & { 
     return data?.id || null;
 };
 
-export const updateApartment = async (apartmentNumber: number, updates: Partial<Apartment>): Promise<void> => {
+export const updateApartment = async (apartmentNumber: number, updates: Partial<Apartment>, block?: string): Promise<void> => {
     if (!(await waitForDb())) return;
     const dbUpdates: any = {};
     if (updates.sakinAdi !== undefined) dbUpdates.resident_name = updates.sakinAdi;
     if (updates.mulkSahibi !== undefined) dbUpdates.owner_name = updates.mulkSahibi;
     if (updates.asansorTabi !== undefined) dbUpdates.has_elevator = updates.asansorTabi;
     if (updates.accessCode !== undefined) dbUpdates.access_code = updates.accessCode;
+    if (updates.blok !== undefined) dbUpdates.block = updates.blok;
 
-    const { error } = await supabase
-        .from('apartments')
-        .update(dbUpdates)
-        .eq('apartment_number', apartmentNumber);
+    let query = supabase.from('apartments').update(dbUpdates).eq('apartment_number', apartmentNumber);
+    if (block !== undefined) query = query.eq('block', block);
+    const { error } = await query;
 
     if (error) {
         handleDbError(error, 'updateApartment');
@@ -258,12 +265,11 @@ export const updateApartment = async (apartmentNumber: number, updates: Partial<
     }
 };
 
-export const deleteApartment = async (apartmentNumber: number): Promise<void> => {
+export const deleteApartment = async (apartmentNumber: number, block?: string): Promise<void> => {
     if (!(await waitForDb())) return;
-    const { error } = await supabase
-        .from('apartments')
-        .delete()
-        .eq('apartment_number', apartmentNumber);
+    let query = supabase.from('apartments').delete().eq('apartment_number', apartmentNumber);
+    if (block !== undefined) query = query.eq('block', block);
+    const { error } = await query;
 
     if (error) {
         handleDbError(error, 'deleteApartment');
@@ -277,7 +283,7 @@ export const fetchDues = async (year: number): Promise<MonthlyDues[]> => {
     // Fetch apartments first
     const { data: apartments, error: aptError } = await supabase
         .from('apartments')
-        .select('id, apartment_number, resident_name');
+        .select('id, apartment_number, resident_name, block');
 
     if (aptError) {
         handleDbError(aptError, 'fetchDues.apartments');
@@ -316,6 +322,7 @@ export const fetchDues = async (year: number): Promise<MonthlyDues[]> => {
         return {
             daireNo: apt.apartment_number,
             sakinAdi: apt.resident_name,
+            blok: apt.block,
             devredenBorc2024: dueRecord?.carried_debt || 0,
             odemeler: payments,
             extraFees,
@@ -328,19 +335,65 @@ export const fetchDues = async (year: number): Promise<MonthlyDues[]> => {
     });
 };
 
+/**
+ * Dairenin devreden borcunu günceller/oluşturur.
+ */
+export const updateCarriedDebt = async (
+    apartmentNo: number,
+    amount: number,
+    year: number,
+    block?: string
+): Promise<void> => {
+    if (!(await waitForDb())) return;
+
+    // 1. Daireyi bul
+    let aptQuery = supabase
+        .from('apartments')
+        .select('id')
+        .eq('apartment_number', apartmentNo);
+
+    if (block) aptQuery = aptQuery.eq('block', block);
+    const { data: apt, error: aptError } = await aptQuery.maybeSingle();
+
+    if (aptError || !apt) {
+        console.error('updateCarriedDebt: Apartment not found', apartmentNo, block);
+        return;
+    }
+
+    // 2. monthly_dues kaydını upsert et
+    const { error } = await supabase
+        .from('monthly_dues')
+        .upsert({
+            apartment_id: apt.id,
+            year,
+            carried_debt: amount
+        }, { onConflict: 'apartment_id, year' });
+
+    if (error) {
+        handleDbError(error, 'updateCarriedDebt');
+        throw error;
+    }
+};
+
+/**
+ * Aidat ödemesini kaydeder.
+ */
 export const updateDuesPayment = async (
     apartmentNumber: number,
     month: string,
     amount: number,
-    year: number
+    year: number,
+    block?: string
 ): Promise<void> => {
     if (!(await waitForDb())) return;
-    // Get apartment ID
-    const { data: apt, error: aptError } = await supabase
+    let query = supabase
         .from('apartments')
         .select('id')
-        .eq('apartment_number', apartmentNumber)
-        .single();
+        .eq('apartment_number', apartmentNumber);
+
+    if (block !== undefined) query = query.eq('block', block);
+
+    const { data: apt, error: aptError } = await query.single();
 
     if (aptError) {
         handleDbError(aptError, 'updateDuesPayment.apt');
@@ -398,14 +451,18 @@ export const updateDuesPayment = async (
 export const updateElevatorPayment = async (
     apartmentNumber: number,
     amount: number,
-    year: number
+    year: number,
+    block?: string
 ): Promise<void> => {
     if (!(await waitForDb())) return;
-    const { data: apt, error: aptError } = await supabase
+    let query = supabase
         .from('apartments')
         .select('id')
-        .eq('apartment_number', apartmentNumber)
-        .single();
+        .eq('apartment_number', apartmentNumber);
+
+    if (block !== undefined) query = query.eq('block', block);
+
+    const { data: apt, error: aptError } = await query.single();
 
     if (aptError) {
         handleDbError(aptError, 'updateElevatorPayment.apt');
@@ -444,14 +501,18 @@ export const updateExtraFee = async (
     apartmentNumber: number,
     feeName: string,
     amount: number,
-    year: number
+    year: number,
+    block?: string
 ): Promise<void> => {
     if (!(await waitForDb())) return;
-    const { data: apt, error: aptError } = await supabase
+    let query = supabase
         .from('apartments')
         .select('id')
-        .eq('apartment_number', apartmentNumber)
-        .single();
+        .eq('apartment_number', apartmentNumber);
+
+    if (block !== undefined) query = query.eq('block', block);
+
+    const { data: apt, error: aptError } = await query.single();
 
     if (aptError) {
         handleDbError(aptError, 'updateExtraFee.apt');
@@ -736,11 +797,13 @@ export const upsertLedgerAidatEntry = async (
     daireNo: number,
     sakinAdi: string,
     amount: number,
-    buildingId?: string
+    buildingId?: string,
+    blok?: string
 ): Promise<void> => {
     if (!(await waitForDb())) return;
-    const tag = `aidat_dues_${daireNo}`;
-    const displayAciklama = `${sakinAdi} (D:${daireNo}) - ${month} Aidatı`;
+    const blockSuffix = blok ? `_${blok}` : '';
+    const tag = `aidat_dues_${daireNo}${blockSuffix}`;
+    const displayAciklama = `${sakinAdi} ${blok ? `(${blok}) ` : ''}(D:${daireNo}) - ${month} Aidatı`;
 
     if (amount <= 0) {
         // Ödeme silinmişse DB'den de sil
@@ -1050,10 +1113,10 @@ export const fetchExpenseItems = async (buildingId: string): Promise<DbExpenseIt
 
     return data?.map((row: any) => ({
         id: row.id,
-        description: row.description,
+        description: row.description || '',
         amount: row.amount || 0,
         quantity: row.quantity || 1,
-        unit: row.unit || 'TL',
+        unit: row.unit || '',
     })) || null;
 };
 

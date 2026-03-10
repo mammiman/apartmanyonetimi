@@ -12,9 +12,10 @@ interface AccessCodeGeneratorProps {
     residentName: string;
     onClose: () => void;
     isOpen?: boolean;
+    block?: string;
 }
 
-export const AccessCodeGenerator = ({ apartmentNo, residentName, onClose }: AccessCodeGeneratorProps) => {
+export const AccessCodeGenerator = ({ apartmentNo, residentName, onClose, block }: AccessCodeGeneratorProps) => {
     const [accessCode, setAccessCode] = useState('');
     const [isLoading, setIsLoading] = useState(true);
 
@@ -24,11 +25,14 @@ export const AccessCodeGenerator = ({ apartmentNo, residentName, onClose }: Acce
             setIsLoading(true);
             try {
                 // 1) Supabase'den kontrol et
-                const { data, error } = await supabase
+                let query = supabase
                     .from('apartments')
                     .select('access_code')
-                    .eq('apartment_number', apartmentNo)
-                    .maybeSingle();
+                    .eq('apartment_number', apartmentNo);
+
+                if (block) query = query.eq('block', block);
+
+                const { data, error } = await query.maybeSingle();
 
                 if (!error && data?.access_code) {
                     setAccessCode(data.access_code);
@@ -41,21 +45,22 @@ export const AccessCodeGenerator = ({ apartmentNo, residentName, onClose }: Acce
 
             // 2) Fallback: localStorage
             const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
-            if (accessCodes[apartmentNo]?.code) {
-                setAccessCode(accessCodes[apartmentNo].code);
+            const storageKey = block ? `${apartmentNo}_${block}` : String(apartmentNo);
+            if (accessCodes[storageKey]?.code) {
+                setAccessCode(accessCodes[storageKey].code);
             }
             setIsLoading(false);
         };
 
         checkExistingCode();
-    }, [apartmentNo]);
+    }, [apartmentNo, block]);
 
     const generateCode = async () => {
         setIsLoading(true);
         try {
-            const code = await generateAndSaveAccessCode(apartmentNo, residentName);
+            const code = await generateAndSaveAccessCode(apartmentNo, residentName, block);
             setAccessCode(code);
-            toast.success(`Daire ${apartmentNo} icin yeni erisim kodu olusturuldu.`);
+            toast.success(`Daire ${apartmentNo} (${block || 'no block'}) icin yeni erisim kodu olusturuldu.`);
         } catch (err) {
             console.error('Kod olusturma hatasi:', err);
             toast.error('Erisim kodu olusturulamadi.');
@@ -79,7 +84,9 @@ export const AccessCodeGenerator = ({ apartmentNo, residentName, onClose }: Acce
                 <div className="space-y-4 py-4">
                     <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg">
                         <div className="text-sm font-medium text-muted-foreground mb-1">Daire</div>
-                        <div className="text-lg font-bold">{apartmentNo} - {residentName}</div>
+                        <div className="text-lg font-bold">
+                            {block ? `${block} Blok - ` : ''} No: {apartmentNo} - {residentName}
+                        </div>
                     </div>
 
                     {isLoading ? (

@@ -10,11 +10,13 @@ export interface Apartment {
   isManager?: boolean;
   blok?: string;
   accessCode?: string;
+  id?: number | string;
 }
 
 export interface MonthlyDues {
   daireNo: number;
   sakinAdi: string;
+  blok?: string;
   devredenBorc2024: number;
   odemeler: Record<string, number>;
   extraFees?: Record<string, number>;
@@ -23,6 +25,7 @@ export interface MonthlyDues {
   borc: number;
   gecikmeCezasi: number;
   odenecekToplamBorc: number;
+  id?: number | string;
 }
 
 export interface LedgerRow {

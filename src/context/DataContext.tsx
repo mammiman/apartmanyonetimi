@@ -70,15 +70,15 @@ interface DataContextType {
     updateApartmentName: (name: string) => void;
     updateStaffInfo: (name: string, role: string) => void;
     updateExpenseItem: (id: number, item: Partial<ExpenseItem>) => void;
-    updateDuesPayment: (daireNo: number, month: string, amount: number) => void;
-    updateExtraFee: (daireNo: number, column: string, amount: number) => void;
-    updateElevatorPayment: (daireNo: number, amount: number) => void;
+    updateDuesPayment: (daireNo: number, month: string, amount: number, blok?: string) => void;
+    updateExtraFee: (daireNo: number, column: string, amount: number, blok?: string) => void;
+    updateElevatorPayment: (daireNo: number, amount: number, blok?: string) => void;
     updateAnnualElevatorFee: (amount: number) => void;
-    updateApartment: (daireNo: number, data: Partial<Apartment>) => void;
+    updateApartment: (daireNo: number, data: Partial<Apartment>, oldBlock?: string) => void;
     addExpenseItem: (item: Omit<ExpenseItem, 'id'>) => void;
     removeExpenseItem: (id: number) => void;
     addApartment: (apt: Apartment) => void;
-    deleteApartment: (daireNo: number) => void;
+    deleteApartment: (daireNo: number, blok?: string) => void;
     updateStaffRecord: (month: string, data: Partial<StaffRecord>) => void;
     addLedgerEntry: (month: string, type: 'gelir' | 'gider', entry: Omit<LedgerRow, 'id'>) => void;
     deleteLedgerEntry: (month: string, type: 'gelir' | 'gider', id: number) => void;
@@ -87,7 +87,7 @@ interface DataContextType {
     updateDuesColumnFee: (name: string, fee: number) => void;
     updateMonthlyDuesAmount: (amount: number) => void;
     updateMonthlySummaryRow: (ay: string, field: string, value: number) => void;
-    updateDevir: (daireNo: number, amount: number) => void;
+    updateDevir: (daireNo: number, amount: number, blok?: string) => void;
     importDuesData: (data: { daireNo: number; sakinAdi?: string; devir?: number; odemeler?: Record<string, number>; asansor?: number; extraFees?: Record<string, number> }[]) => void;
     startNewYear: () => void;
     switchYear: (targetYear: number) => void;
@@ -479,7 +479,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 if (amount <= 0) return false;
                 // ledger'da bu aidat kaydı var mı?
                 const monthGelirler = ledger[month]?.gelirler || [];
-                return !monthGelirler.some(r => String(r.aciklama) === `aidat_dues_${due.daireNo}`);
+                const blockSuffix = due.blok ? `_${due.blok}` : '';
+                return !monthGelirler.some(r => String(r.aciklama) === `aidat_dues_${due.daireNo}${blockSuffix}`);
             })
         );
 
@@ -496,9 +497,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             MONTHS.forEach(month => {
                 const amount = due.odemeler?.[month] || 0;
                 if (amount > 0) {
-                    const apt = apartments.find(a => a.daireNo === due.daireNo);
+                    const apt = apartments.find(a => a.daireNo === due.daireNo && a.blok === due.blok);
                     const sakinAdi = apt?.sakinAdi || due.sakinAdi || String(due.daireNo);
-                    api.upsertLedgerAidatEntry(month, due.daireNo, sakinAdi, amount, effectiveBuildingId).catch((err) => {
+                    api.upsertLedgerAidatEntry(month, due.daireNo, sakinAdi, amount, effectiveBuildingId, due.blok).catch((err) => {
                         console.warn('[DB] upsertLedgerAidatEntry error:', err);
                     });
                 }
@@ -625,18 +626,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     const amount = due.odemeler?.[month] || 0;
                     if (amount > 0) {
                         maxId += 1;
-                        const apt = apartments.find(a => a.daireNo === due.daireNo);
+                        const apt = apartments.find(a => a.daireNo === due.daireNo && a.blok === due.blok);
+                        const ledgerTag = `aidat_dues_${due.daireNo}_${due.blok || ''}`;
                         aidatGelirler.push({
                             id: maxId,
                             tarih: '',
-                            aciklama: `aidat_dues_${due.daireNo}`,
+                            aciklama: ledgerTag,
                             kategori: 'Aidat Ödemesi',
                             tutar: amount,
                             tip: 'gelir' as const,
                             ay: month,
                             sakinAdi: apt?.sakinAdi || due.sakinAdi,
                             daireNo: due.daireNo,
-                            displayAciklama: `${apt?.sakinAdi || due.sakinAdi} (D:${due.daireNo}) - ${month} Aidatı`
+                            blok: due.blok,
+                            displayAciklama: `${apt?.sakinAdi || due.sakinAdi} (D:${due.daireNo}${due.blok ? ` ${due.blok}` : ''}) - ${month} Aidatı`
                         });
                     }
                 });
@@ -656,9 +659,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         devir: number,
         payments: Record<string, number>,
         elevatorPaid: number,
-        extra: Record<string, number> = {}
+        extra: Record<string, number> = {},
+        blok?: string
     ) => {
-        const apt = apartments.find(a => a.daireNo === daireNo);
+        const apt = apartments.find(a => a.daireNo === daireNo && (blok === undefined || a.blok === blok));
         const isManager = apt?.isManager || false;
         const subjectToElevator = apt?.asansorTabi || false;
 
@@ -679,9 +683,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         month: string,
         daireNo: number,
         sakinAdi: string,
-        amount: number
+        amount: number,
+        blok?: string
     ) => {
-        const ledgerTag = `aidat_dues_${daireNo}`;
+        const ledgerTag = `aidat_dues_${daireNo}_${blok || ''}`;
         setLedger(prev => {
             const monthData = prev[month] || { giderler: [], gelirler: [] };
             const filteredGelirler = (monthData.gelirler || []).filter(
@@ -702,24 +707,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 ay: month,
                 sakinAdi: sakinAdi,
                 daireNo: daireNo,
-                displayAciklama: `${sakinAdi} (D:${daireNo}) - ${month} Aidatı`
+                blok: blok,
+                displayAciklama: `${sakinAdi} (D:${daireNo}${blok ? ` ${blok}` : ''}) - ${month} Aidatı`
             };
             return { ...prev, [month]: { ...monthData, gelirler: [...filteredGelirler, newEntry] } };
         });
     };
 
-    const updateDuesPayment = (daireNo: number, month: string, amount: number) => {
-        const apt = apartments.find(a => a.daireNo === daireNo);
+    const updateDuesPayment = (daireNo: number, month: string, amount: number, blok?: string) => {
+        const apt = apartments.find(a => a.daireNo === daireNo && (blok === undefined || a.blok === blok));
         const sakinAdi = apt?.sakinAdi || String(daireNo);
         // DB'ye aidat çizelgesi kaydı
-        api.updateDuesPayment(daireNo, month, amount, year).catch(console.error);
+        api.updateDuesPayment(daireNo, month, amount, year, blok).catch(console.error);
         // DB'ye ledger_entries aidat kaydı (upsert)
-        api.upsertLedgerAidatEntry(month, daireNo, sakinAdi, amount, buildingId !== 'default' ? buildingId : undefined).catch(console.error);
-        addLog("AIDAT_ODEME", `${sakinAdi} - ${month}: ${amount} TL`);
+        api.upsertLedgerAidatEntry(month, daireNo, sakinAdi, amount, buildingId !== 'default' ? buildingId : undefined, blok).catch(console.error);
+        addLog("AIDAT_ODEME", `${sakinAdi} (${blok || ''}) - ${month}: ${amount} TL`);
         setDues(prev => prev.map(d => {
-            if (d.daireNo === daireNo) {
+            if (d.daireNo === daireNo && (blok === undefined || d.blok === blok)) {
                 const newPayments = { ...d.odemeler, [month]: amount };
-                const { totalPaid, balance } = calculateTotals(daireNo, d.devredenBorc2024, newPayments, d.asansorOdemesi, d.extraFees);
+                const { totalPaid, balance } = calculateTotals(daireNo, d.devredenBorc2024, newPayments, d.asansorOdemesi, d.extraFees, d.blok);
                 return {
                     ...d,
                     odemeler: newPayments,
@@ -731,13 +737,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }));
     };
 
-    const updateExtraFee = (daireNo: number, column: string, amount: number) => {
-        api.updateExtraFee(daireNo, column, amount, year).catch(console.error);
-        addLog("EK_UCRET_ODEME", `Daire ${daireNo} - ${column}: ${amount} TL`);
+    const updateExtraFee = (daireNo: number, column: string, amount: number, blok?: string) => {
+        api.updateExtraFee(daireNo, column, amount, year, blok).catch(console.error);
+        addLog("EK_UCRET_ODEME", `Daire ${daireNo} (${blok || ''}) - ${column}: ${amount} TL`);
         setDues(prev => prev.map(d => {
-            if (d.daireNo === daireNo) {
+            if (d.daireNo === daireNo && (blok === undefined || d.blok === blok)) {
                 const newExtra = { ...(d.extraFees || {}), [column]: amount };
-                const { totalPaid, balance } = calculateTotals(daireNo, d.devredenBorc2024, d.odemeler, d.asansorOdemesi, newExtra);
+                const { totalPaid, balance } = calculateTotals(daireNo, d.devredenBorc2024, d.odemeler, d.asansorOdemesi, newExtra, d.blok);
                 return {
                     ...d,
                     extraFees: newExtra,
@@ -749,12 +755,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }));
     };
 
-    const updateElevatorPayment = (daireNo: number, amount: number) => {
-        api.updateElevatorPayment(daireNo, amount, year).catch(console.error);
-        addLog("ASANSOR_ODEME", `Daire ${daireNo}: ${amount} TL`);
+    const updateElevatorPayment = (daireNo: number, amount: number, blok?: string) => {
+        api.updateElevatorPayment(daireNo, amount, year, blok).catch(console.error);
+        addLog("ASANSOR_ODEME", `Daire ${daireNo} (${blok || ''}): ${amount} TL`);
         setDues(prev => prev.map(d => {
-            if (d.daireNo === daireNo) {
-                const { totalPaid, balance } = calculateTotals(daireNo, d.devredenBorc2024, d.odemeler, amount, d.extraFees);
+            if (d.daireNo === daireNo && (blok === undefined || d.blok === blok)) {
+                const { totalPaid, balance } = calculateTotals(daireNo, d.devredenBorc2024, d.odemeler, amount, d.extraFees, d.blok);
                 return {
                     ...d,
                     asansorOdemesi: amount,
@@ -766,9 +772,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }));
     };
 
-    const updateApartment = (daireNo: number, data: Partial<Apartment>) => {
-        api.updateApartment(daireNo, data).catch(console.error);
-        setApartments(prev => prev.map(apt => apt.daireNo === daireNo ? { ...apt, ...data } : apt));
+    const updateApartment = (daireNo: number, data: Partial<Apartment>, oldBlock?: string) => {
+        api.updateApartment(daireNo, data, oldBlock).catch(console.error);
+        setApartments(prev => prev.map(apt => (apt.daireNo === daireNo && (oldBlock === undefined || apt.blok === oldBlock)) ? { ...apt, ...data } : apt));
     };
 
     const addApartment = async (apt: Apartment) => {
@@ -777,6 +783,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setApartments(prev => [...prev, apt].sort((a, b) => a.daireNo - b.daireNo));
         setDues(prev => [...prev, {
             daireNo: apt.daireNo,
+            blok: apt.blok,
             sakinAdi: apt.sakinAdi,
             devredenBorc2024: 0,
             odemeler: {},
@@ -788,12 +795,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             odenecekToplamBorc: 0
         }].sort((a, b) => a.daireNo - b.daireNo));
 
-        addLog("DAIRE_EKLE", `Daire ${apt.daireNo} eklendi — Sakin: ${apt.sakinAdi}`);
+        addLog("DAIRE_EKLE", `Daire ${apt.daireNo} (${apt.blok || ''}) eklendi — Sakin: ${apt.sakinAdi}`);
 
-        generateAndSaveAccessCode(apt.daireNo, apt.sakinAdi)
+        generateAndSaveAccessCode(apt.daireNo, apt.sakinAdi, apt.blok)
             .then(code => {
                 setApartments(prev => prev.map(a =>
-                    a.daireNo === apt.daireNo ? { ...a, accessCode: code } : a
+                    (a.daireNo === apt.daireNo && a.blok === apt.blok) ? { ...a, accessCode: code } : a
                 ));
                 toast.success(
                     `Daire ${apt.daireNo} eklendi. Erişim kodu: ${code}`,
@@ -824,13 +831,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
 
-    const deleteApartment = (daireNo: number) => {
-        if (confirm(`Daire ${daireNo} silinecek. Emin misiniz?`)) {
-            api.deleteApartment(daireNo).catch(console.error);
-            const apt = apartments.find(a => a.daireNo === daireNo);
-            setApartments(prev => prev.filter(a => a.daireNo !== daireNo));
-            setDues(prev => prev.filter(d => d.daireNo !== daireNo));
-            addLog("DAIRE_SIL", `Daire ${daireNo} silindi — Sakin: ${apt?.sakinAdi || 'Bilinmiyor'}`);
+    const deleteApartment = (daireNo: number, blok?: string) => {
+        if (confirm(`Daire ${daireNo} ${blok ? `(${blok} Blok) ` : ''}silinecek. Emin misiniz?`)) {
+            api.deleteApartment(daireNo, blok).catch(console.error);
+            const apt = apartments.find(a => a.daireNo === daireNo && (blok === undefined || a.blok === blok));
+            setApartments(prev => prev.filter(a => !(a.daireNo === daireNo && (blok === undefined || a.blok === blok))));
+            setDues(prev => prev.filter(d => !(d.daireNo === daireNo && (blok === undefined || d.blok === blok))));
+            addLog("DAIRE_SIL", `Daire ${daireNo} (${blok || ''}) silindi — Sakin: ${apt?.sakinAdi || 'Bilinmiyor'}`);
             toast.success(`Daire ${daireNo} silindi.`);
         }
     };
@@ -934,11 +941,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (type === 'gelir') {
                 const deletedEntry = monthData.gelirler.find(r => r.id === id);
                 if (deletedEntry && String(deletedEntry.aciklama).startsWith('aidat_dues_')) {
-                    const daireNo = parseInt(String(deletedEntry.aciklama).replace('aidat_dues_', ''), 10);
+                    const tagParts = String(deletedEntry.aciklama).split('_');
+                    const daireNo = parseInt(tagParts[2], 10);
+                    const blok = tagParts[3] || '';
                     if (!isNaN(daireNo)) {
                         setTimeout(() => {
                             setDues(prevDues => prevDues.map(d => {
-                                if (d.daireNo === daireNo) {
+                                if (d.daireNo === daireNo && (d.blok === blok || (!d.blok && !blok))) {
                                     const newOdemeler = { ...d.odemeler, [month]: 0 };
                                     return { ...d, odemeler: newOdemeler };
                                 }
@@ -1099,10 +1108,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     // Devir güncelleme
-    const updateDevir = (daireNo: number, amount: number) => {
+    const updateDevir = (daireNo: number, amount: number, blok?: string) => {
+        // DB'ye kaydet
+        const apt = apartments.find(a => a.daireNo === daireNo && (blok === undefined || a.blok === blok));
+        api.updateCarriedDebt(daireNo, amount, year, blok).catch(console.error);
+
         setDues(prev => prev.map(d => {
-            if (d.daireNo === daireNo) {
-                const { totalPaid, balance } = calculateTotals(daireNo, amount, d.odemeler, d.asansorOdemesi, d.extraFees);
+            if (d.daireNo === daireNo && (blok === undefined || d.blok === blok)) {
+                const { totalPaid, balance } = calculateTotals(daireNo, amount, d.odemeler, d.asansorOdemesi, d.extraFees, d.blok);
                 return {
                     ...d,
                     devredenBorc2024: amount,
@@ -1112,7 +1125,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             return d;
         }));
-        addLog("DEVIR_GUNCELLE", `Daire ${daireNo}: Devir ${amount} TL olarak güncellendi`);
+        addLog("DEVIR_GUNCELLE", `Daire ${daireNo} (${blok || ''}): Devir ${amount} TL olarak güncellendi`);
     };
 
     // Excel'den veri import etme

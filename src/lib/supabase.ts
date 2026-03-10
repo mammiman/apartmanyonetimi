@@ -37,6 +37,7 @@ export const signInWithAccessCode = async (accessCode: string) => {
             const residentSession = {
                 apartmentId: apt.apartment_number,
                 residentName: apt.resident_name,
+                blok: apt.block || null,
                 accessCode: codeUpper,
                 role: 'resident',
                 buildingId: apt.building_id || null,
@@ -45,8 +46,8 @@ export const signInWithAccessCode = async (accessCode: string) => {
             localStorage.setItem('residentSession', JSON.stringify(residentSession));
             return {
                 user: {
-                    id: `resident_${apt.apartment_number}`,
-                    email: `daire${apt.apartment_number}@resident.local`,
+                    id: `resident_${apt.apartment_number}_${apt.block || 'default'}`,
+                    email: `daire${apt.apartment_number}.${apt.block || 'default'}@resident.local`,
                     role: 'resident'
                 },
                 session: residentSession
@@ -216,9 +217,8 @@ export const generateAccessCode = async (apartmentId: number): Promise<string> =
 
     return code;
 };
-
 // Erişim kodu oluştur ve Supabase'de hem apartments hem users tablosuna kaydet
-export const generateAndSaveAccessCode = async (apartmentNumber: number, residentName: string, _knownApartmentDbId?: number): Promise<string> => {
+export const generateAndSaveAccessCode = async (apartmentNumber: number, residentName: string, blok?: string): Promise<string> => {
     const buildingId = localStorage.getItem('selectedBuildingId') || null;
 
     // Tek RPC çağrısı ile her şeyi yap: kod üret + apartments güncelle + users'a ekle
@@ -226,21 +226,24 @@ export const generateAndSaveAccessCode = async (apartmentNumber: number, residen
         const { data, error } = await supabase.rpc('generate_access_code_and_user', {
             p_apartment_number: apartmentNumber,
             p_resident_name: residentName,
-            p_building_id: buildingId
+            p_building_id: buildingId,
+            p_blok: blok
         });
 
         if (error) {
             console.error('generate_access_code_and_user RPC error:', error);
         } else if (data) {
             const code = data as string;
-            console.log(`✅ Access code generated & resident user created for apartment ${apartmentNumber}: ${code}`);
+            console.log(`✅ Access code generated & resident user created for apartment ${apartmentNumber} (${blok || 'no block'}): ${code}`);
 
             // localStorage'a da yaz (geriye dönük uyumluluk)
             const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
-            accessCodes[apartmentNumber] = {
+            const storageKey = blok ? `${apartmentNumber}_${blok}` : String(apartmentNumber);
+            accessCodes[storageKey] = {
                 code: code,
                 createdAt: new Date().toISOString(),
-                residentName
+                residentName,
+                blok
             };
             localStorage.setItem('accessCodes', JSON.stringify(accessCodes));
 
@@ -256,13 +259,15 @@ export const generateAndSaveAccessCode = async (apartmentNumber: number, residen
     for (let i = 0; i < 6; i++) {
         code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    console.warn(`⚠️ Fallback: Access code generated client-side for apartment ${apartmentNumber}: ${code}`);
+    console.warn(`⚠️ Fallback: Access code generated client-side for apartment ${apartmentNumber} (${blok || 'no block'}): ${code}`);
 
     const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
-    accessCodes[apartmentNumber] = {
+    const storageKey = blok ? `${apartmentNumber}_${blok}` : String(apartmentNumber);
+    accessCodes[storageKey] = {
         code: code,
         createdAt: new Date().toISOString(),
-        residentName
+        residentName,
+        blok
     };
     localStorage.setItem('accessCodes', JSON.stringify(accessCodes));
 

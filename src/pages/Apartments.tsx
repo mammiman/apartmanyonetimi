@@ -98,9 +98,14 @@ const Apartments = () => {
 
   const handleSave = () => {
     if (editingApt) {
-      updateApartment(editingApt.daireNo, editingApt);
+      // Find the original apartment to get its original daireNo and blok
+      const originalApt = apartments.find(a => 
+        (a.id !== undefined && a.id === editingApt.id)
+      ) || apartments.find(a => a.daireNo === editingApt.daireNo && a.blok === editingApt.blok) || editingApt;
+
+      updateApartment(editingApt.daireNo, editingApt, originalApt.blok);
       setEditingApt(null);
-      toast.success(`Daire ${editingApt.daireNo} güncellendi.`);
+      toast.success(`Daire ${editingApt.daireNo} (${editingApt.blok || ''}) güncellendi.`);
     }
   };
 
@@ -113,7 +118,7 @@ const Apartments = () => {
 
   const handleDelete = () => {
     if (editingApt) {
-      deleteApartment(editingApt.daireNo);
+      deleteApartment(editingApt.daireNo, editingApt.blok);
       setEditingApt(null);
     }
   };
@@ -130,14 +135,14 @@ const Apartments = () => {
     const amount = parseFloat(paymentAmount) || 0;
 
     if (paymentType === "aidat") {
-      updateDuesPayment(paymentApt.daireNo, paymentMonth, amount);
-      toast.success(`Daire ${paymentApt.daireNo} için ${paymentMonth} aidatı güncellendi: ${amount} TL`);
+      updateDuesPayment(paymentApt.daireNo, paymentMonth, amount, paymentApt.blok);
+      toast.success(`Daire ${paymentApt.daireNo} (${paymentApt.blok || ''}) için ${paymentMonth} aidatı güncellendi: ${amount} TL`);
     } else if (paymentType === "asansor") {
-      updateElevatorPayment(paymentApt.daireNo, amount);
-      toast.success(`Daire ${paymentApt.daireNo} için asansör ödemesi güncellendi: ${amount} TL`);
+      updateElevatorPayment(paymentApt.daireNo, amount, paymentApt.blok);
+      toast.success(`Daire ${paymentApt.daireNo} (${paymentApt.blok || ''}) için asansör ödemesi güncellendi: ${amount} TL`);
     } else {
-      updateExtraFee(paymentApt.daireNo, paymentType, amount);
-      toast.success(`Daire ${paymentApt.daireNo} için ${paymentType} ödemesi güncellendi: ${amount} TL`);
+      updateExtraFee(paymentApt.daireNo, paymentType, amount, paymentApt.blok);
+      toast.success(`Daire ${paymentApt.daireNo} (${paymentApt.blok || ''}) için ${paymentType} ödemesi güncellendi: ${amount} TL`);
     }
     setIsPaymentOpen(false);
   };
@@ -291,6 +296,7 @@ const Apartments = () => {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Daire Düzenle: Daire {editingApt?.daireNo}</DialogTitle>
+              <DialogDescription>Daire bilgilerini güncelleyebilir veya daireyi silebilirsiniz.</DialogDescription>
             </DialogHeader>
             {editingApt && (
               <div className="grid gap-4 py-4">
@@ -315,7 +321,7 @@ const Apartments = () => {
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label className="text-right">Sakin Adı</Label>
                   <Input
-                    value={editingApt.sakinAdi}
+                    value={editingApt.sakinAdi || ""}
                     onChange={(e) => setEditingApt({ ...editingApt, sakinAdi: e.target.value })}
                     className="col-span-3"
                   />
@@ -332,7 +338,7 @@ const Apartments = () => {
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label className="text-right">Mülk Sahibi</Label>
                   <Input
-                    value={editingApt.mulkSahibi}
+                    value={editingApt.mulkSahibi || ""}
                     onChange={(e) => setEditingApt({ ...editingApt, mulkSahibi: e.target.value })}
                     className="col-span-3"
                   />
@@ -389,7 +395,7 @@ const Apartments = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredApartments.map((apt) => (
             <div
-              key={apt.daireNo}
+              key={`${apt.blok || ''}-${apt.daireNo}`}
               className="stat-card group hover:border-accent/40 relative cursor-pointer"
               onClick={() => setEditingApt(apt)}
             >
@@ -506,6 +512,7 @@ const Apartments = () => {
             <AccessCodeGenerator
               apartmentNo={accessCodeApt.daireNo}
               residentName={accessCodeApt.sakinAdi}
+              block={accessCodeApt.blok}
               isOpen={!!accessCodeApt}
               onClose={() => setAccessCodeApt(null)}
             />

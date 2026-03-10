@@ -110,8 +110,9 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
     console.log('ProtectedRoute - requireAdmin:', requireAdmin);
 
     if (!user) {
-        console.log('ProtectedRoute - No user, redirecting to login');
-        return <Navigate to="/login" replace />;
+        console.log('ProtectedRoute - No user, redirecting to login via hash');
+        window.location.hash = '#/login';
+        return null;
     }
 
     // If user is admin (or pending), enforce building access
@@ -171,21 +172,22 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
         console.log('ProtectedRoute - User is resident');
         // Redirect residents to their dashboard if they try to access admin pages
         if (requireAdmin || location.pathname === '/') {
-            console.log('ProtectedRoute - Redirecting resident to /resident');
-            return <Navigate to="/resident" replace />;
+            console.log('ProtectedRoute - Redirecting resident to /resident via hash');
+            window.location.hash = '#/resident';
+            return null;
         }
     }
 
-    // If user is admin trying to access /resident, redirect to home
     if (user.profile?.role === 'admin' && location.pathname === '/resident') {
-        console.log('ProtectedRoute - Admin trying to access /resident, redirecting to /');
-        return <Navigate to="/" replace />;
+        console.log('ProtectedRoute - Admin trying to access /resident, redirecting to / via hash');
+        window.location.hash = '#/';
+        return null;
     }
 
-    // If admin is required but user is not admin
     if (requireAdmin && user.profile?.role !== 'admin') {
-        console.log('ProtectedRoute - Admin required but user is not admin, redirecting to /');
-        return <Navigate to="/" replace />;
+        console.log('ProtectedRoute - Admin required but user is not admin, redirecting to / via hash');
+        window.location.hash = '#/';
+        return null;
     }
 
     console.log('ProtectedRoute - Rendering children');

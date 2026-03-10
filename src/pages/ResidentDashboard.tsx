@@ -4,19 +4,35 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
     Building2, Calendar, Download, LogOut, AlertCircle,
-    CheckCircle2, ShieldAlert, TrendingDown, ChevronDown, ChevronUp, Eye, RefreshCw
+    CheckCircle2, ShieldAlert, TrendingDown, ChevronDown, ChevronUp, Eye, RefreshCw,
+    Image as ImageIcon, Bell
 } from "lucide-react";
 import { MONTHS, formatCurrency, formatNumber } from "@/data/initialData";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useState } from "react";
+import { getPhoto } from "@/lib/photoStorage";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 const MONTHS_TR = ['OCAK', 'ŞUBAT', 'MART', 'NİSAN', 'MAYIS', 'HAZİRAN', 'TEMMUZ', 'AĞUSTOS', 'EYLÜL', 'EKİM', 'KASIM', 'ARALIK'];
 
 const ResidentDashboard = () => {
-    const { dues, apartments, monthlyDuesAmount, expenseItems, annualElevatorFee, ledger, year, refreshData } = useData();
+    const { dues, apartments, monthlyDuesAmount, expenseItems, annualElevatorFee, ledger, year, refreshData, announcements } = useData();
     const [isManualRefreshing, setIsManualRefreshing] = useState(false);
     const navigate = useNavigate();
+
+    const [viewerPhoto, setViewerPhoto] = useState<string | null>(null);
+    const [isViewerOpen, setIsViewerOpen] = useState(false);
+
+    const handleViewPhoto = async (photoId: string) => {
+        const data = await getPhoto(photoId);
+        if (data) {
+            setViewerPhoto(data);
+            setIsViewerOpen(true);
+        } else {
+            toast.error('Fotoğraf bulunamadı (sadece yüklendiği cihazda görüntülenir).');
+        }
+    };
 
     const handleRefresh = async () => {
         setIsManualRefreshing(true);
@@ -121,14 +137,22 @@ const ResidentDashboard = () => {
     const currentMonthPaid = (myDues.odemeler?.[currentMonthName] || 0) >= monthlyDuesAmount;
 
     // İşletme defterinden gerçek giderler (kategori dahil)
-    const allLedgerExpenses: { ay: string; aciklama: string; kategori: string; tutar: number; tarih: string }[] = [];
+    const allLedgerExpenses: { ay: string; aciklama: string; kategori: string; tutar: number; tarih: string, photoId: string | null }[] = [];
     MONTHS_TR.forEach(month => {
         (ledger[month]?.giderler || []).forEach(g => {
             let desc = g.displayAciklama || g.aciklama;
+            let photoId: string | null = null;
             if (String(desc).startsWith('devir_from_')) {
                 desc = `${String(desc).replace('devir_from_', '')} ayından devir`;
             }
-            allLedgerExpenses.push({ ay: month, aciklama: desc, kategori: g.kategori || '', tutar: g.tutar, tarih: g.tarih || '' });
+            if (String(desc).includes('[PHOTO:')) {
+                const match = String(desc).match(/\[PHOTO:(.+?)\]/);
+                if (match) {
+                    photoId = match[1];
+                    desc = String(desc).replace(match[0], '').trim();
+                }
+            }
+            allLedgerExpenses.push({ ay: month, aciklama: desc, kategori: g.kategori || '', tutar: g.tutar, tarih: g.tarih || '', photoId });
         });
     });
     const totalLedgerExpense = allLedgerExpenses.reduce((s, g) => s + g.tutar, 0);
@@ -284,6 +308,24 @@ const ResidentDashboard = () => {
                     </CardContent>
                 </Card>
 
+                {/* İlanlar ve Duyurular (Eğer varsa göster) */}
+                {announcements && announcements.length > 0 && (
+                    <Card className="shadow-md border-purple-100 dark:border-purple-900 bg-gradient-to-br from-purple-50 to-white dark:from-purple-900/20 dark:to-background">
+                        <CardHeader className="pb-2 pt-4 flex flex-row items-center gap-2">
+                            <Bell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                            <CardTitle className="text-base text-purple-900 dark:text-purple-100">İlanlar ve Duyurular</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3 pb-4">
+                            {announcements.map((a) => (
+                                <div key={a.id} className="p-3 bg-white/60 dark:bg-black/20 rounded-lg border border-purple-200/50 dark:border-purple-800/50 flex flex-col gap-1">
+                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-snug">{a.message}</p>
+                                    <span className="text-xs text-purple-600/70 dark:text-purple-400/70">{a.date}</span>
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                )}
+
                 {/* Aksiyon Butonları */}
                 <div className="grid grid-cols-2 gap-3">
                     <Button
@@ -425,7 +467,21 @@ const ResidentDashboard = () => {
                                                             <span className="inline-flex px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px]">{g.kategori}</span>
                                                         ) : '—'}
                                                     </td>
-                                                    <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{g.aciklama}</td>
+                                                    <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                                                        <div className="flex items-center gap-2">
+                                                            <span>{g.aciklama}</span>
+                                                            {g.photoId && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-6 w-6 text-emerald-600 shrink-0 hover:bg-emerald-50"
+                                                                    onClick={() => handleViewPhoto(g.photoId!)}
+                                                                >
+                                                                    <ImageIcon className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            )}
+                                                        </div>
+                                                    </td>
                                                     <td className="px-3 py-2 text-right font-bold text-red-600 dark:text-red-400 whitespace-nowrap">{formatCurrency(g.tutar)}</td>
                                                 </tr>
                                             ))}
@@ -455,6 +511,17 @@ const ResidentDashboard = () => {
                 )}
 
             </div>
+
+            {/* Fotoğraf Görüntüleme Diyalogu */}
+            <Dialog open={isViewerOpen} onOpenChange={setIsViewerOpen}>
+                <DialogContent className="sm:max-w-xl p-0 overflow-hidden bg-transparent border-none shadow-none z-[100]">
+                    {viewerPhoto && (
+                        <div className="relative bg-black/80 p-2 rounded-xl flex items-center justify-center">
+                            <img src={viewerPhoto} alt="Gider Fişi/Faturası" className="max-w-full max-h-[85vh] object-contain rounded" />
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </Layout>
     );
 };

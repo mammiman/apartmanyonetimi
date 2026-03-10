@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 const Staff = () => {
-  const { staffRecords, updateStaffRecord, year, staffName, staffRole, updateStaffInfo, isLoading } = useData();
+  const { staffRecords, updateStaffRecord, year, staffName, staffRole, updateStaffInfo, isLoading, ledger } = useData();
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(staffName);
   const [tempRole, setTempRole] = useState(staffRole);
@@ -36,9 +36,17 @@ const Staff = () => {
     );
   }
 
+  const getLedgerStaffPayments = (month: string) => {
+    const monthData = ledger[month];
+    if (!monthData) return 0;
+    return monthData.giderler
+      .filter((g: any) => g.kategori === 'Kapıcı Aylık' || g.kategori === 'Personel Ödemesi' || String(g.aciklama).startsWith('staff_payment_'))
+      .reduce((sum: number, g: any) => sum + g.tutar, 0);
+  };
+
   const totalMaas = localRecords.reduce((s, r) => s + r.maas, 0);
   const totalMesai = localRecords.reduce((s, r) => s + r.mesai, 0);
-  const totalOdenen = localRecords.reduce((s, r) => s + r.toplamOdenen, 0);
+  const totalOdenen = localRecords.reduce((s, r) => s + Math.max(r.toplamOdenen, getLedgerStaffPayments(r.ay)), 0);
   const monthlyTazminat = 500;
   const activemonths = localRecords.filter((r) => r.maas > 0).length;
   const toplamTazminat = activemonths * monthlyTazminat;
@@ -217,6 +225,8 @@ const Staff = () => {
             <tbody>
               {localRecords.map((row, i) => {
                 const isActive = row.maas > 0;
+                const ledgerPaid = getLedgerStaffPayments(row.ay);
+                const displayOdenen = Math.max(row.toplamOdenen, ledgerPaid);
 
                 return (
                   <tr key={row.ay} className={!isActive && !isEditing ? "opacity-40 hover:opacity-100 transition-opacity" : "hover:bg-muted/30"}>
@@ -291,14 +301,14 @@ const Staff = () => {
                           onChange={(e) => updateLocalField(row.ay, 'toplamOdenen', e.target.value)}
                           className="h-8 w-24 ml-auto text-right font-bold text-xs"
                         />
-                      ) : formatNumber(row.toplamOdenen)}
+                      ) : formatNumber(displayOdenen)}
                     </td>
 
                     <td className="text-right text-muted-foreground p-1">
                       {isActive || (isEditing && row.maas > 0) ? formatNumber(monthlyTazminat) : "—"}
                     </td>
                     <td className="p-1">
-                      {isActive && row.toplamOdenen > 0 ? (
+                      {isActive && displayOdenen > 0 ? (
                         <span className="status-paid">Ödendi</span>
                       ) : isActive ? (
                         <span className="text-xs text-orange-600 font-medium">Bekliyor</span>

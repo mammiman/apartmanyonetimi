@@ -486,7 +486,15 @@ const Apartments = () => {
               {/* Action Buttons */}
               <div className="flex gap-2 mt-4 pt-4 border-t" >
                 {apt.accessCode && (
-                  <div className="flex items-center text-xs font-mono bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded border border-green-200 dark:border-green-700">
+                  <div 
+                    className="flex items-center text-xs font-mono bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded border border-green-200 dark:border-green-700 cursor-pointer hover:bg-green-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard.writeText(apt.accessCode!);
+                      toast.success('Erişim kodu kopyalandı!');
+                    }}
+                    title="Kopyalamak için tıklayın"
+                  >
                     <span className="mr-1">🔑</span> {apt.accessCode}
                   </div>
                 )}
@@ -515,6 +523,10 @@ const Apartments = () => {
               block={accessCodeApt.blok}
               isOpen={!!accessCodeApt}
               onClose={() => setAccessCodeApt(null)}
+              onGenerated={(newCode) => {
+                const oldBlock = accessCodeApt.blok;
+                updateApartment(accessCodeApt.daireNo, { accessCode: newCode }, oldBlock);
+              }}
             />
           )
         }

@@ -36,6 +36,12 @@ export interface LogEntry {
     user?: string;
 }
 
+export interface Announcement {
+    id: string;
+    message: string;
+    date: string;
+}
+
 interface AppData {
     dues: MonthlyDues[];
     ledger: LedgerParams;
@@ -64,6 +70,7 @@ interface DataContextType {
     staffName: string;
     staffRole: string;
     isLoading: boolean;
+    announcements: Announcement[];
 
     // Actions
     addLog: (action: string, details: string) => void;
@@ -94,6 +101,8 @@ interface DataContextType {
     isDbAvailable: boolean;
     retryRemoteData: () => Promise<void>;
     refreshData: (silent?: boolean) => Promise<void>;
+    addAnnouncement: (message: string) => void;
+    deleteAnnouncement: (id: string) => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -243,11 +252,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return saved ? parseFloat(saved) : 600;
     });
 
+    const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
+        const saved = localStorage.getItem(bKey("app_announcements"));
+        return saved ? JSON.parse(saved) : [];
+    });
+
     // ===== localStorage Persistence (cache) =====
     useEffect(() => { localStorage.setItem(bKey("app_staffName"), staffName); }, [staffName]);
     useEffect(() => { localStorage.setItem(bKey("app_staffRole"), staffRole); }, [staffRole]);
     useEffect(() => { localStorage.setItem(bKey("app_apartmentName"), apartmentName); }, [apartmentName]);
     useEffect(() => { localStorage.setItem(bKey("app_expenseItems"), JSON.stringify(expenseItems)); }, [expenseItems]);
+    useEffect(() => { localStorage.setItem(bKey("app_announcements"), JSON.stringify(announcements)); }, [announcements]);
     useEffect(() => { localStorage.setItem(bKey("app_logs"), JSON.stringify(logs)); }, [logs]);
     useEffect(() => { localStorage.setItem(bKey("app_year"), year.toString()); }, [year]);
     useEffect(() => { localStorage.setItem(bKey("app_dues"), JSON.stringify(dues)); }, [dues]);
@@ -388,6 +403,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 if ((remoteSettings as any).duesColumnFees) {
                     setDuesColumnFees((remoteSettings as any).duesColumnFees);
                 }
+                if ((remoteSettings as any).announcements) {
+                    setAnnouncements((remoteSettings as any).announcements);
+                }
             }
 
             // 9) Monthly Summary - DB'den gelirse DB verisini kullan
@@ -466,6 +484,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (ledgerSyncDoneRef.current) return;
         if (!buildingId || buildingId === 'default') return;
         if (!api.isDbAvailable()) return;
+        
+        // Sakin girişi yapılmışsa, veritabanına yazma işlemi (migration) yapma
+        if (localStorage.getItem('residentSession')) return;
 
         // Zaten ledger'da aidat_dues kayıtları varsa sync gerekmez
         const hasAnyAidat = MONTHS.some(m =>
@@ -546,6 +567,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!canSaveToDB()) return;
         api.saveBuildingSetting(buildingId, 'availableYears', availableYears).catch(() => { });
     }, [availableYears]);
+
+    useEffect(() => {
+        if (!canSaveToDB()) return;
+        api.saveBuildingSetting(buildingId, 'announcements', announcements).catch(() => { });
+    }, [announcements]);
 
     useEffect(() => {
         if (!canSaveToDB()) return;
@@ -1188,6 +1214,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setDuesColumnFees(prev => ({ ...prev, [name]: fee }));
     };
 
+    const addAnnouncement = (message: string) => {
+        setAnnouncements(prev => [{ id: Date.now().toString(), message, date: new Date().toLocaleDateString('tr-TR') }, ...prev]);
+        toast.success("Duyuru eklendi.");
+    };
+
+    const deleteAnnouncement = (id: string) => {
+        setAnnouncements(prev => prev.filter(a => a.id !== id));
+        toast.success("Duyuru silindi.");
+    };
+
     const value = {
         year,
         dues,
@@ -1234,7 +1270,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         removeExpenseItem,
         isDbAvailable,
         retryRemoteData,
-        refreshData
+        refreshData,
+        announcements,
+        addAnnouncement,
+        deleteAnnouncement
     };
 
     return (

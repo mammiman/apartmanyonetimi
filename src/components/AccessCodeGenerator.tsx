@@ -13,9 +13,10 @@ interface AccessCodeGeneratorProps {
     onClose: () => void;
     isOpen?: boolean;
     block?: string;
+    onGenerated?: (code: string) => void;
 }
 
-export const AccessCodeGenerator = ({ apartmentNo, residentName, onClose, block }: AccessCodeGeneratorProps) => {
+export const AccessCodeGenerator = ({ apartmentNo, residentName, onClose, block, onGenerated }: AccessCodeGeneratorProps) => {
     const [accessCode, setAccessCode] = useState('');
     const [isLoading, setIsLoading] = useState(true);
 
@@ -60,6 +61,7 @@ export const AccessCodeGenerator = ({ apartmentNo, residentName, onClose, block 
         try {
             const code = await generateAndSaveAccessCode(apartmentNo, residentName, block);
             setAccessCode(code);
+            if (onGenerated) onGenerated(code);
             toast.success(`Daire ${apartmentNo} (${block || 'no block'}) icin yeni erisim kodu olusturuldu.`);
         } catch (err) {
             console.error('Kod olusturma hatasi:', err);

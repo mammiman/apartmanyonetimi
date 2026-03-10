@@ -8,10 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Printer, TrendingDown, TrendingUp, ArrowLeftRight, Receipt, FileText } from "lucide-react";
+import { Plus, Trash2, Printer, TrendingDown, TrendingUp, ArrowLeftRight, Receipt, FileText, Image as ImageIcon } from "lucide-react";
 import { printReceipt } from "@/lib/printUtils";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { savePhoto, getPhoto } from "@/lib/photoStorage";
 
 interface NewEntryForm {
   tarih: string;
@@ -42,10 +43,41 @@ const OperatingLedger = () => {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [entryType, setEntryType] = useState<'gelir' | 'gider'>('gider');
 
-  // Gider pusulası "Kime" diyalogu
   const [kimeDialogOpen, setKimeDialogOpen] = useState(false);
   const [kimeValue, setKimeValue] = useState('');
   const [pendingReceiptRow, setPendingReceiptRow] = useState<any>(null);
+
+  const [photoFile, setPhotoFile] = useState<string | null>(null);
+  const [viewerPhoto, setViewerPhoto] = useState<string | null>(null);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error("Fotoğraf boyutu 2MB'tan küçük olmalıdır.");
+        e.target.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhotoFile(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setPhotoFile(null);
+    }
+  };
+
+  const handleViewPhoto = async (photoId: string) => {
+    const data = await getPhoto(photoId);
+    if (data) {
+      setViewerPhoto(data);
+      setIsViewerOpen(true);
+    } else {
+      toast.error('Fotoğraf bulunamadı (sadece yüklendiği cihazda görüntülenir).');
+    }
+  };
 
   const [newEntry, setNewEntry] = useState<NewEntryForm>({
     tarih: new Date().toLocaleDateString('tr-TR'),
@@ -138,16 +170,27 @@ const OperatingLedger = () => {
     }
 
     // Diğer kategoriler için normal ledger kaydı
+    let finalDesc = newEntry.aciklama;
+    let finalDisplayDesc = undefined;
+
+    if (entryType === 'gider' && photoFile) {
+      const photoId = Date.now().toString();
+      savePhoto(photoId, photoFile).catch(() => {});
+      finalDisplayDesc = `${newEntry.aciklama} [PHOTO:${photoId}]`;
+    }
+
     addLedgerEntry(selectedMonth, entryType, {
       tarih: newEntry.tarih,
-      aciklama: newEntry.aciklama,
+      aciklama: finalDesc,
+      displayAciklama: finalDisplayDesc,
       tutar,
       kategori: newEntry.kategori,
       tip: entryType,
       ay: selectedMonth
-    });
+    } as any);
 
     setIsAddDialogOpen(false);
+    setPhotoFile(null);
     setNewEntry({
       tarih: new Date().toLocaleDateString('tr-TR'),
       aciklama: '',
@@ -442,6 +485,17 @@ const OperatingLedger = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Fotoğraf Görüntüleme Diyalogu */}
+        <Dialog open={isViewerOpen} onOpenChange={setIsViewerOpen}>
+          <DialogContent className="sm:max-w-xl p-0 overflow-hidden bg-transparent border-none shadow-none">
+            {viewerPhoto && (
+              <div className="relative bg-black/80 p-2 rounded-xl flex items-center justify-center">
+                <img src={viewerPhoto} alt="Gider Fişi/Faturası" className="max-w-full max-h-[85vh] object-contain rounded" />
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
@@ -565,9 +619,16 @@ const OperatingLedger = () => {
                     <Label htmlFor="amount" className="text-right">Tutar</Label>
                     <Input id="amount" type="number" value={newEntry.tutar} onChange={e => setNewEntry({ ...newEntry, tutar: e.target.value })} className="col-span-3" placeholder="0.00" />
                   </div>
+                  {entryType === 'gider' && (
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="photo" className="text-right">Fiş/Fatura Resim</Label>
+                      <Input id="photo" type="file" accept="image/*" onChange={handleFileChange} className="col-span-3" />
+                      {photoFile && <p className="col-span-4 text-xs text-right text-emerald-600">Fotoğraf seçildi ✓</p>}
+                    </div>
+                  )}
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>İptal</Button>
+                  <Button variant="outline" onClick={() => { setIsAddDialogOpen(false); setPhotoFile(null); }}>İptal</Button>
                   <Button onClick={handleAddEntry} className={entryType === 'gelir' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}>
                     Kaydet
                   </Button>
@@ -692,11 +753,21 @@ const OperatingLedger = () => {
                       </tr>
                     )}
                     {data.giderler.map((row, idx) => {
-                      const displayGiderDesc = (row as any).displayAciklama && !(row as any).displayAciklama.startsWith('staff_payment_')
+                      let displayGiderDesc = (row as any).displayAciklama && !(row as any).displayAciklama.startsWith('staff_payment_')
                         ? (row as any).displayAciklama
                         : String(row.aciklama).startsWith('staff_payment_')
                           ? `${String(row.aciklama).replace('staff_payment_', '')} Ayı Personel Ödemesi`
                           : row.aciklama;
+
+                      let photoId: string | null = null;
+                      if (displayGiderDesc.includes('[PHOTO:')) {
+                         const match = displayGiderDesc.match(/\[PHOTO:(.+?)\]/);
+                         if (match) {
+                           photoId = match[1];
+                           displayGiderDesc = displayGiderDesc.replace(match[0], '').trim();
+                         }
+                      }
+
                       return (
                         <tr key={row.id} className="hover:bg-red-50/50 dark:hover:bg-red-950/10 transition-colors group">
                           <td className="px-3 py-3 align-middle text-muted-foreground font-mono text-xs">{idx + 1}</td>
@@ -712,6 +783,17 @@ const OperatingLedger = () => {
                           </td>
                           <td className="px-2 py-3 align-middle text-center">
                             <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {photoId && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+                                  title="Fotoğrafı Görüntüle"
+                                  onClick={() => handleViewPhoto(photoId!)}
+                                >
+                                  <ImageIcon className="w-3.5 h-3.5" />
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="icon"

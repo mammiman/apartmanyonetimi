@@ -22,7 +22,8 @@ import {
   Building2,
   Download,
   ScrollText,
-  Printer
+  Printer,
+  Bell
 } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import {
@@ -58,8 +59,13 @@ const Dashboard = () => {
     annualElevatorFee,
     updateAnnualElevatorFee,
     isLoading,
-    staffName
+    staffName,
+    announcements,
+    addAnnouncement,
+    deleteAnnouncement
   } = useData();
+
+  const [newAnnouncement, setNewAnnouncement] = useState("");
 
   if (isLoading) {
     return (
@@ -865,6 +871,58 @@ const Dashboard = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* İlanlar ve Duyurular */}
+        <Card className="shadow-lg h-fit mb-6">
+          <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 border-b">
+            <CardTitle className="text-lg font-bold flex items-center gap-2">
+              <Bell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              Sakinler İçin İlanlar ve Duyurular
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 space-y-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Yeni bir duyuru mesajı yazın..."
+                value={newAnnouncement}
+                onChange={(e) => setNewAnnouncement(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newAnnouncement.trim()) {
+                    addAnnouncement(newAnnouncement.trim());
+                    setNewAnnouncement("");
+                  }
+                }}
+              />
+              <Button
+                onClick={() => {
+                  if (newAnnouncement.trim()) {
+                    addAnnouncement(newAnnouncement.trim());
+                    setNewAnnouncement("");
+                  }
+                }}
+                className="bg-purple-600 hover:bg-purple-700 text-white shadow-md transition-all"
+              >
+                Yayınla
+              </Button>
+            </div>
+            
+            <div className="space-y-2 pt-2">
+              {announcements && announcements.length > 0 ? announcements.map((a) => (
+                <div key={a.id} className="flex justify-between items-center p-3 rounded-lg border border-purple-100 bg-purple-50/50 dark:border-purple-900/30 dark:bg-purple-900/10 transition-colors hover:bg-purple-50 dark:hover:bg-purple-900/20">
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{a.message}</span>
+                    <span className="text-xs text-slate-500 mt-0.5">{a.date}</span>
+                  </div>
+                  <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900/30" onClick={() => deleteAnnouncement(a.id)}>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              )) : (
+                <p className="text-sm text-slate-500 text-center italic py-4">Henüz bir duyuru yayınlanmadı.</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </Layout>
   );

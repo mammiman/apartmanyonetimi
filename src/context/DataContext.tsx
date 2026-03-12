@@ -17,7 +17,7 @@ import {
 } from "@/data/initialData";
 import { toast } from "sonner";
 import * as api from "@/lib/api";
-import { generateAndSaveAccessCode, supabase } from "@/lib/supabase";
+import { generateAndSaveAccessCode, supabase, getBuildingId } from "@/lib/supabase";
 
 // Define App Data Structure for yearly storage
 export interface ExpenseItem {
@@ -313,6 +313,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             dbConnected.current = true;
+
+            // Auto-resolve buildingId if not set
+            if (buildingId === 'default') {
+                const profileId = await getBuildingId();
+                if (profileId) {
+                    console.log('[DB] Resolved buildingId from profile:', profileId);
+                    localStorage.setItem('selectedBuildingId', profileId);
+                    setBuildingId(profileId);
+                    // buildingId state update is async, but we can't wait for it here easily without recursion
+                    // so we re-call refreshData or just use the local profileId for current fetch
+                } else {
+                    console.warn('[DB] No buildingId found in profile or localStorage');
+                    setIsLoading(false);
+                    return;
+                }
+            }
+
+            const currentId = buildingId === 'default' ? localStorage.getItem('selectedBuildingId') || 'default' : buildingId;
+            if (currentId === 'default') {
+                setIsLoading(false);
+                return;
+            }
 
             // 2) DB bağlantısı var, TÜM verileri PARALEL çek (çok daha hızlı)
             const [

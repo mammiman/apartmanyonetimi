@@ -509,6 +509,94 @@ const Dashboard = () => {
           </div>
         </div>
 
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+          <Link to="/isletme-defteri" className="block">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full border-l-4 border-l-primary">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Güncel Kasa (Net)</CardTitle>
+                <span className="text-2xl">💰</span>
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${kasaDurumu >= 0 ? "text-success" : "text-destructive"}`}>
+                  {formatCurrency(kasaDurumu)}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Toplam gelir - gider farkı
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Card className="h-full border-l-4 border-l-teal-500">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Banka Bakiyesi</CardTitle>
+              <span className="text-2xl">🏦</span>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${(bankaToplami ?? icmalToplamPre.banka) >= 0 ? "text-teal-600" : "text-destructive"}`}>
+                {formatCurrency(bankaToplami ?? icmalToplamPre.banka)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Banka hesap bakiyesi
+              </p>
+            </CardContent>
+          </Card>
+
+
+
+          <Link to="/aidat" className="block">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full border-l-4 border-l-destructive">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Toplam Alacak</CardTitle>
+                <span className="text-2xl">📉</span>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive">
+                  {formatCurrency(totalBorc)}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Sakinlerin ödemesi gereken
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link to="/daireler" className="block">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full border-l-4 border-l-blue-500">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Daireler</CardTitle>
+                <span className="text-2xl">🏢</span>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-foreground">
+                  {duesSchedule.length} <span className="text-sm font-normal text-muted-foreground">Aktif</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Toplam bağımsız bölüm
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link to="/personel" className="block">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full border-l-4 border-l-orange-500">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Personel</CardTitle>
+                <span className="text-2xl">👷‍♂️</span>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-foreground">
+                  1 <span className="text-sm font-normal text-muted-foreground">Kişi</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 truncate">
+                  {staffName}
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
+
         {/* İlanlar ve Duyurular */}
         <Card className="shadow-lg h-fit">
           <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 border-b py-3 px-4 flex flex-row items-center justify-between">
@@ -609,93 +697,7 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
-          <Link to="/isletme-defteri" className="block">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full border-l-4 border-l-primary">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Güncel Kasa (Net)</CardTitle>
-                <span className="text-2xl">💰</span>
-              </CardHeader>
-              <CardContent>
-                <div className={`text-2xl font-bold ${kasaDurumu >= 0 ? "text-success" : "text-destructive"}`}>
-                  {formatCurrency(kasaDurumu)}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Toplam gelir - gider farkı
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
 
-          <Card className="h-full border-l-4 border-l-teal-500">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Banka Bakiyesi</CardTitle>
-              <span className="text-2xl">🏦</span>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${(bankaToplami ?? icmalToplam.banka) >= 0 ? "text-teal-600" : "text-destructive"}`}>
-                {formatCurrency(bankaToplami ?? icmalToplam.banka)}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Banka hesap bakiyesi
-              </p>
-            </CardContent>
-          </Card>
-
-
-
-          <Link to="/aidat" className="block">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full border-l-4 border-l-destructive">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Toplam Alacak</CardTitle>
-                <span className="text-2xl">📉</span>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-destructive">
-                  {formatCurrency(totalBorc)}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Dairelerin borç toplamı
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-
-          <Link to="/daireler" className="block">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full border-l-4 border-l-blue-500">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Daireler</CardTitle>
-                <span className="text-2xl">🏢</span>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-foreground">
-                  {duesSchedule.length} <span className="text-sm font-normal text-muted-foreground">Adet</span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Bağımsız bölümler
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-
-          <Link to="/personel" className="block">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full border-l-4 border-l-orange-500">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Personel</CardTitle>
-                <span className="text-2xl">👨‍🔧</span>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-foreground">
-                  1 <span className="text-sm font-normal text-muted-foreground">Kişi</span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {staffName}
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        </div>
 
         {/* İcmal Tablosu - Excel Formatı - Düzenlenebilir */}
         <Card className="shadow-sm overflow-hidden border-2 border-amber-200 dark:border-amber-800">

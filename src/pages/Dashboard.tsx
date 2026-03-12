@@ -64,8 +64,12 @@ const Dashboard = () => {
     staffName,
     announcements,
     addAnnouncement,
-    deleteAnnouncement
+    deleteAnnouncement,
+    bankaToplami,
+    setBankaToplami
   } = useData();
+
+
 
   const [newAnnouncement, setNewAnnouncement] = useState("");
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
@@ -300,16 +304,6 @@ const Dashboard = () => {
   const [isEditingIcmal, setIsEditingIcmal] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(apartmentName);
-  // Banka toplam override - localStorage'da kalıcı
-  const [bankaToplami, setBankaToplami] = useState<number | null>(() => {
-    const saved = localStorage.getItem('icmal_banka_toplam');
-    return saved !== null ? parseFloat(saved) : null;
-  });
-  const saveBankaToplami = (v: number) => {
-    setBankaToplami(v);
-    localStorage.setItem('icmal_banka_toplam', String(v));
-  };
-
   // useEffect to sync tempName
   useEffect(() => { setTempName(apartmentName); }, [apartmentName]);
 
@@ -317,6 +311,12 @@ const Dashboard = () => {
     updateApartmentName(tempName);
     setIsEditingName(false);
   };
+
+  const saveBankaToplami = (v: number | null) => {
+    if (v !== null) setBankaToplami(v);
+  };
+
+
 
   // Calculate Summary Metrics
   const totalBorc = duesSchedule.reduce((sum, item) => sum + (item.odenecekToplamBorc < 0 ? Math.abs(item.odenecekToplamBorc) : 0), 0);
@@ -372,10 +372,10 @@ const Dashboard = () => {
 
     // monthlySummary'den banka bakiyesi (manuel düzenleme destekli)
     // NOT: ?? operatörü 0'ı null olarak görmez, bu yüzden açıkça kontrol ediyoruz
-    // Kullanıcı banka değerini manuel girmişse (0'dan farklı) onu kullan, yoksa kümülatif kasayı kullan
     const summaryRow = monthlySummary.find(m => m.ay === month);
-    const hasBankaOverride = summaryRow && summaryRow.banka !== undefined && summaryRow.banka !== 0;
-    const bankaValue = hasBankaOverride ? summaryRow.banka : cumulativeKasa;
+    const hasBankaOverride = summaryRow && summaryRow.banka !== undefined && summaryRow.banka !== null && summaryRow.banka !== summaryRow.kasa;
+    const bankaValue = hasBankaOverride ? (summaryRow?.banka ?? cumulativeKasa) : cumulativeKasa;
+
     
     // FARK: Kasa ile Banka arasındaki fark (Eldeki Nakit)
     const eldekiNakit = cumulativeKasa - bankaValue;

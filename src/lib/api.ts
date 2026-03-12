@@ -809,32 +809,45 @@ export const createLedgerEntry = async (
  * Aidat ödemelerini ledger_entries tablosuna upsert eder.
  * description = 'aidat_dues_{daireNo}' olarak kullanılır (unique key).
  */
-export const upsertLedgerAidatEntry = async (
+export const upsertLedgerPaymentEntry = async (
     month: string,
     daireNo: number,
     sakinAdi: string,
     amount: number,
+    kategori: string,
     buildingId?: string,
     blok?: string
 ): Promise<void> => {
     if (!(await waitForDb())) return;
     const blockSuffix = blok ? `_${blok}` : '';
-    const tag = `aidat_dues_${daireNo}${blockSuffix}`;
-    const displayAciklama = `${sakinAdi} ${blok ? `(${blok}) ` : ''}(D:${daireNo}) - ${month} Aidatı`;
+    
+    // Tag definition based on category
+    let tag = '';
+    let displayAciklama = '';
+    
+    if (kategori === 'Aidat Ödemesi') {
+        tag = `aidat_dues_${daireNo}${blockSuffix}`;
+        displayAciklama = `${sakinAdi} ${blok ? `(${blok}) ` : ''}(D:${daireNo}) - ${month} Aidatı`;
+    } else if (kategori === 'Asansör Demirbaş') {
+        tag = `asansor_dues_${daireNo}${blockSuffix}`;
+        displayAciklama = `${sakinAdi} ${blok ? `(${blok}) ` : ''}(D:${daireNo}) - Asansör Ödemesi`;
+    } else {
+        // Extra fees
+        tag = `extra_fee_${kategori}_${daireNo}${blockSuffix}`;
+        displayAciklama = `${sakinAdi} ${blok ? `(${blok}) ` : ''}(D:${daireNo}) - ${kategori} Ödemesi`;
+    }
 
     if (amount <= 0) {
-        // Ödeme silinmişse DB'den de sil
         const { error } = await supabase
             .from('ledger_entries')
             .delete()
             .eq('description', tag)
             .eq('month', month)
             .eq('building_id', buildingId || null);
-        if (error) console.warn('upsertLedgerAidatEntry delete error:', error.message);
+        if (error) console.warn('upsertLedgerPaymentEntry delete error:', error.message);
         return;
     }
 
-    // Önce var mı kontrol et
     let filterQuery = supabase
         .from('ledger_entries')
         .select('id')
@@ -848,9 +861,9 @@ export const upsertLedgerAidatEntry = async (
         type: 'income',
         description: tag,
         amount,
-        kategori: 'Aidat Ödemesi',
+        kategori: kategori,
         display_aciklama: displayAciklama,
-        tarih: '',
+        tarih: new Date().toLocaleDateString('tr-TR'),
         daire_no: daireNo,
         sakin_adi: sakinAdi,
         ay: month,
@@ -862,14 +875,19 @@ export const upsertLedgerAidatEntry = async (
             .from('ledger_entries')
             .update({ amount, display_aciklama: displayAciklama, sakin_adi: sakinAdi })
             .eq('id', existing.id);
-        if (error) console.warn('upsertLedgerAidatEntry update error:', error.message);
+        if (error) console.warn('upsertLedgerPaymentEntry update error:', error.message);
     } else {
         const { error } = await supabase
             .from('ledger_entries')
             .insert(payload);
-        if (error) console.warn('upsertLedgerAidatEntry insert error:', error.message);
+        if (error) console.warn('upsertLedgerPaymentEntry insert error:', error.message);
     }
 };
+
+// Kept for backward compatibility
+export const upsertLedgerAidatEntry = (m: string, d: number, s: string, a: number, b?: string, bl?: string) => 
+    upsertLedgerPaymentEntry(m, d, s, a, 'Aidat Ödemesi', b, bl);
+
 
 export const deleteLedgerEntry = async (id: number): Promise<void> => {
     if (!(await waitForDb())) return;
@@ -996,6 +1014,7 @@ export interface BuildingSettings {
     availableYears?: number[];
     currentYear?: number;
     duesColumnFees?: Record<string, number>;
+    bankaToplami?: number;
 }
 
 export const fetchBuildingSettings = async (buildingId: string): Promise<BuildingSettings> => {
@@ -1023,6 +1042,7 @@ export const fetchBuildingSettings = async (buildingId: string): Promise<Buildin
             case 'availableYears': settings.availableYears = val; break;
             case 'currentYear': settings.currentYear = typeof val === 'number' ? val : parseInt(val); break;
             case 'duesColumnFees': settings.duesColumnFees = val; break;
+            case 'bankaToplami': settings.bankaToplami = typeof val === 'number' ? val : parseFloat(val); break;
         }
     });
     return settings;

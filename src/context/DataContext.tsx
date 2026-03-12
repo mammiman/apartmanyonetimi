@@ -72,6 +72,8 @@ interface DataContextType {
     staffRole: string;
     isLoading: boolean;
     announcements: Announcement[];
+    bankaToplami: number | null;
+    setBankaToplami: (v: number) => void;
 
     // Actions
     addLog: (action: string, details: string) => void;
@@ -79,9 +81,10 @@ interface DataContextType {
     updateStaffInfo: (name: string, role: string) => void;
     updateExpenseItem: (id: number, item: Partial<ExpenseItem>) => void;
     updateDuesPayment: (daireNo: number, month: string, amount: number, blok?: string) => void;
-    updateExtraFee: (daireNo: number, column: string, amount: number, blok?: string) => void;
-    updateElevatorPayment: (daireNo: number, amount: number, blok?: string) => void;
+    updateExtraFee: (daireNo: number, column: string, amount: number, blok?: string, month?: string) => void;
+    updateElevatorPayment: (daireNo: number, amount: number, blok?: string, month?: string) => void;
     updateAnnualElevatorFee: (amount: number) => void;
+
     updateApartment: (daireNo: number, data: Partial<Apartment>, oldBlock?: string) => void;
     addExpenseItem: (item: Omit<ExpenseItem, 'id'>) => void;
     removeExpenseItem: (id: number) => void;
@@ -246,6 +249,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [availableYears, setAvailableYears] = useState<number[]>(() => {
         const saved = localStorage.getItem(bKey("app_available_years"));
         return saved ? JSON.parse(saved) : [new Date().getFullYear()];
+    });
+
+    const [bankaToplami, setBankaToplami] = useState<number | null>(() => {
+        const saved = localStorage.getItem(bKey("app_bankaToplami")) || localStorage.getItem('icmal_banka_toplam');
+        return saved !== null ? parseFloat(saved) : null;
     });
 
     // Annual Elevator Fee State
@@ -425,6 +433,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
                 if ((remoteSettings as any).announcements) {
                     setAnnouncements((remoteSettings as any).announcements);
+                }
+                if (remoteSettings.bankaToplami !== undefined && !isNaN(remoteSettings.bankaToplami)) {
+                    setBankaToplami(remoteSettings.bankaToplami);
                 }
             }
 
@@ -615,7 +626,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         api.saveBuildingSetting(buildingId, 'currentYear', year).catch(() => { });
     }, [year]);
 
+    useEffect(() => { localStorage.setItem(bKey("app_bankaToplami"), bankaToplami !== null ? bankaToplami.toString() : ""); }, [bankaToplami]);
+    useEffect(() => {
+        if (!canSaveToDB() || bankaToplami === null) return;
+        api.saveBuildingSetting(buildingId, 'bankaToplami', bankaToplami).catch(() => { });
+    }, [bankaToplami]);
+
     // Monthly Summary değiştiğinde DB'ye kaydet (tablo mevcutsa)
+
     useEffect(() => {
         if (isLoading || !canSaveToDB() || !dbTablesAvailable.current.monthly_summary) return;
 
@@ -654,8 +672,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             cumulativeKasa += fark;
 
             // Banka: kullanıcı manuel override yapmışsa koru, yoksa kasa ile aynı yap
-            const hasBankaOverride = m.banka !== undefined && m.banka !== 0 && m.banka !== m.kasa;
+            const hasBankaOverride = m.banka !== undefined && m.banka !== null && m.banka !== m.kasa;
             const newBanka = hasBankaOverride ? m.banka : cumulativeKasa;
+
 
             return {
                 ...m,
@@ -800,8 +819,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }));
     };
 
-    const updateExtraFee = (daireNo: number, column: string, amount: number, blok?: string) => {
+    const updateExtraFee = (daireNo: number, column: string, amount: number, blok?: string, month?: string) => {
+        const apt = apartments.find(a => a.daireNo === daireNo && (blok === undefined || a.blok === blok));
+        const sakinAdi = apt?.sakinAdi || String(daireNo);
+        const effectiveMonth = month || MONTHS[currentMonthIndex];
+
         api.updateExtraFee(daireNo, column, amount, year, blok).catch(console.error);
+        api.upsertLedgerPaymentEntry(effectiveMonth, daireNo, sakinAdi, amount, column, buildingId !== 'default' ? buildingId : undefined, blok).catch(console.error);
+        
         addLog("EK_UCRET_ODEME", `Daire ${daireNo} (${blok || ''}) - ${column}: ${amount} TL`);
         setDues(prev => prev.map(d => {
             if (d.daireNo === daireNo && (blok === undefined || d.blok === blok)) {
@@ -818,8 +843,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }));
     };
 
-    const updateElevatorPayment = (daireNo: number, amount: number, blok?: string) => {
+    const updateElevatorPayment = (daireNo: number, amount: number, blok?: string, month?: string) => {
+        const apt = apartments.find(a => a.daireNo === daireNo && (blok === undefined || a.blok === blok));
+        const sakinAdi = apt?.sakinAdi || String(daireNo);
+        const effectiveMonth = month || MONTHS[currentMonthIndex];
+
         api.updateElevatorPayment(daireNo, amount, year, blok).catch(console.error);
+        api.upsertLedgerPaymentEntry(effectiveMonth, daireNo, sakinAdi, amount, 'Asansör Demirbaş', buildingId !== 'default' ? buildingId : undefined, blok).catch(console.error);
+        
         addLog("ASANSOR_ODEME", `Daire ${daireNo} (${blok || ''}): ${amount} TL`);
         setDues(prev => prev.map(d => {
             if (d.daireNo === daireNo && (blok === undefined || d.blok === blok)) {
@@ -834,6 +865,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return d;
         }));
     };
+
 
     const updateApartment = (daireNo: number, data: Partial<Apartment>, oldBlock?: string) => {
         api.updateApartment(daireNo, data, oldBlock).catch(console.error);
@@ -1330,8 +1362,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshData,
         announcements,
         addAnnouncement,
-        deleteAnnouncement
+        deleteAnnouncement,
+        bankaToplami,
+        setBankaToplami
     };
+
 
     return (
         <DataContext.Provider value={value}>

@@ -24,7 +24,8 @@ interface NewEntryForm {
 const MONTHS_TR = ['OCAK', 'ŞUBAT', 'MART', 'NİSAN', 'MAYIS', 'HAZİRAN', 'TEMMUZ', 'AĞUSTOS', 'EYLÜL', 'EKİM', 'KASIM', 'ARALIK'];
 
 const OperatingLedger = () => {
-  const { ledger, addLedgerEntry, deleteLedgerEntry, year, apartments, apartmentName, updateDuesPayment, dues, isLoading } = useData();
+  const { ledger, addLedgerEntry, deleteLedgerEntry, year, apartments, apartmentName, updateDuesPayment, updateElevatorPayment, updateExtraFee, dues, duesColumns, isLoading } = useData();
+
 
   if (isLoading) {
     return (
@@ -143,10 +144,10 @@ const OperatingLedger = () => {
       return;
     }
 
-    // Aidat kategorisinde daire seçimi zorunlu
-    if (entryType === 'gelir' && newEntry.kategori === 'Aidat Ödemesi') {
+    // Daire bazlı ödemelerin sync edilmesi
+    if (entryType === 'gelir' && (newEntry.kategori === 'Aidat Ödemesi' || newEntry.kategori === 'Asansör Demirbaş' || duesColumns.includes(newEntry.kategori))) {
       if (!selectedDaireNo) {
-        toast.error("Aidat ödemesi için lütfen daire seçiniz.");
+        toast.error("Bu işlem için lütfen daire seçiniz.");
         return;
       }
       const apt = apartments.find(a => a.daireNo === selectedDaireNo);
@@ -154,20 +155,33 @@ const OperatingLedger = () => {
         toast.error("Seçilen daire bulunamadı.");
         return;
       }
-      // Mevcut ödemeyi kontrol et
-      const existing = dues?.find(d => d.daireNo === selectedDaireNo);
-      const existingPaid = existing?.odemeler?.[selectedMonth] || 0;
-      const newTotal = existingPaid + tutar;
 
-      // updateDuesPayment: hem aidat çizelgesine hem ledger'a (syncDuesPaymentToLedger içinde) yazar
-      updateDuesPayment(selectedDaireNo, selectedMonth, newTotal);
-      toast.success(`Daire ${selectedDaireNo} — ${selectedMonth} aidatı ${newTotal.toLocaleString('tr-TR')} ₺ olarak güncellendi.`);
+      const existing = dues?.find(d => d.daireNo === selectedDaireNo);
+      
+      if (newEntry.kategori === 'Aidat Ödemesi') {
+        const existingPaid = existing?.odemeler?.[selectedMonth] || 0;
+        const newTotal = existingPaid + tutar;
+        updateDuesPayment(selectedDaireNo, selectedMonth, newTotal);
+        toast.success(`Daire ${selectedDaireNo} — ${selectedMonth} aidatı ${newTotal.toLocaleString('tr-TR')} ₺ olarak güncellendi.`);
+      } else if (newEntry.kategori === 'Asansör Demirbaş') {
+        const existingPaid = existing?.asansorOdemesi || 0;
+        const newTotal = existingPaid + tutar;
+        updateElevatorPayment(selectedDaireNo, newTotal, apt.blok, selectedMonth);
+        toast.success(`Daire ${selectedDaireNo} — Asansör ödemesi ${newTotal.toLocaleString('tr-TR')} ₺ olarak güncellendi.`);
+      } else if (duesColumns.includes(newEntry.kategori)) {
+        const existingPaid = (existing?.extraFees || {})[newEntry.kategori] || 0;
+        const newTotal = existingPaid + tutar;
+        updateExtraFee(selectedDaireNo, newEntry.kategori, newTotal, apt.blok, selectedMonth);
+        toast.success(`Daire ${selectedDaireNo} — ${newEntry.kategori} ödemesi ${newTotal.toLocaleString('tr-TR')} ₺ olarak güncellendi.`);
+      }
+
 
       setIsAddDialogOpen(false);
       setNewEntry({ tarih: new Date().toLocaleDateString('tr-TR'), aciklama: '', tutar: '', kategori: '' });
       setSelectedDaireNo(null);
       return;
     }
+
 
     // Diğer kategoriler için normal ledger kaydı
     let finalDesc = newEntry.aciklama;
@@ -565,8 +579,8 @@ const OperatingLedger = () => {
                     </Select>
                   </div>
 
-                  {/* Aidat seçilince daire seçimi - aidat çizelgesine de yansıt */}
-                  {entryType === 'gelir' && newEntry.kategori === 'Aidat Ödemesi' && (
+                  {/* Daire seçimi gerektiren gelir kategorileri */}
+                  {entryType === 'gelir' && (newEntry.kategori === 'Aidat Ödemesi' || newEntry.kategori === 'Asansör Demirbaş' || duesColumns.includes(newEntry.kategori)) && (
                     <div className="grid grid-cols-4 items-center gap-4">
                       <Label className="text-right text-emerald-700 font-semibold">Daire</Label>
                       <div className="col-span-3">
@@ -574,18 +588,31 @@ const OperatingLedger = () => {
                           const daireNo = parseInt(v);
                           setSelectedDaireNo(daireNo);
                           const apt = apartments.find(a => a.daireNo === daireNo);
-                          if (apt) setNewEntry(prev => ({ ...prev, aciklama: `${apt.sakinAdi} (D:${daireNo}) - ${selectedMonth} Aidati` }));
+                          if (apt) {
+                            const suffix = newEntry.kategori === 'Aidat Ödemesi' ? `${selectedMonth} Aidatı` : newEntry.kategori;
+                            setNewEntry(prev => ({ ...prev, aciklama: `${apt.sakinAdi} (D:${daireNo}) - ${suffix}` }));
+                          }
                         }}>
                           <SelectTrigger className="border-emerald-300">
-                            <SelectValue placeholder="Aidat ödeyen daireyi seçin..." />
+                            <SelectValue placeholder="Daire seçin..." />
                           </SelectTrigger>
                           <SelectContent>
                             {apartments.filter(a => !a.isManager).map(apt => {
                               const duesRow = dues?.find(d => d.daireNo === apt.daireNo);
-                              const paid = duesRow?.odemeler?.[selectedMonth] || 0;
+                              let paidInfo = ' ⚠ ödenmemiş';
+                              if (newEntry.kategori === 'Aidat Ödemesi') {
+                                const paid = duesRow?.odemeler?.[selectedMonth] || 0;
+                                if (paid > 0) paidInfo = ` ✓ (${paid.toLocaleString('tr-TR')} ₺)`;
+                              } else if (newEntry.kategori === 'Asansör Demirbaş') {
+                                const paid = duesRow?.asansorOdemesi || 0;
+                                if (paid > 0) paidInfo = ` ✓ (${paid.toLocaleString('tr-TR')} ₺)`;
+                              } else if (duesColumns.includes(newEntry.kategori)) {
+                                const paid = (duesRow?.extraFees || {})[newEntry.kategori] || 0;
+                                if (paid > 0) paidInfo = ` ✓ (${paid.toLocaleString('tr-TR')} ₺)`;
+                              }
                               return (
                                 <SelectItem key={apt.daireNo} value={apt.daireNo.toString()}>
-                                  D:{apt.daireNo} — {apt.sakinAdi}{paid > 0 ? ` ✓ (${paid.toLocaleString('tr-TR')} ₺)` : ' ⚠ ödenmemiş'}
+                                  D:{apt.daireNo} — {apt.sakinAdi}{paidInfo}
                                 </SelectItem>
                               );
                             })}
@@ -595,6 +622,7 @@ const OperatingLedger = () => {
                       </div>
                     </div>
                   )}
+
 
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="desc" className="text-right">Açıklama</Label>

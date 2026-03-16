@@ -246,7 +246,12 @@ export const createApartment = async (apartment: Omit<Apartment, 'daireNo'> & { 
     return data?.id || null;
 };
 
-export const updateApartment = async (apartmentNumber: number, updates: Partial<Apartment>, block?: string): Promise<void> => {
+export const updateApartment = async (
+    apartmentNumber: number,
+    updates: Partial<Apartment>,
+    block?: string,
+    buildingId?: string
+): Promise<void> => {
     if (!(await waitForDb())) return;
     const dbUpdates: any = {};
     if (updates.sakinAdi !== undefined) dbUpdates.resident_name = updates.sakinAdi;
@@ -257,6 +262,7 @@ export const updateApartment = async (apartmentNumber: number, updates: Partial<
 
     let query = supabase.from('apartments').update(dbUpdates).eq('apartment_number', apartmentNumber);
     if (block !== undefined) query = query.eq('block', block);
+    if (buildingId) query = query.eq('building_id', buildingId);
     const { error } = await query;
 
     if (error) {
@@ -265,10 +271,11 @@ export const updateApartment = async (apartmentNumber: number, updates: Partial<
     }
 };
 
-export const deleteApartment = async (apartmentNumber: number, block?: string): Promise<void> => {
+export const deleteApartment = async (apartmentNumber: number, block?: string, buildingId?: string): Promise<void> => {
     if (!(await waitForDb())) return;
     let query = supabase.from('apartments').delete().eq('apartment_number', apartmentNumber);
     if (block !== undefined) query = query.eq('block', block);
+    if (buildingId) query = query.eq('building_id', buildingId);
     const { error } = await query;
 
     if (error) {
@@ -320,7 +327,9 @@ export const fetchDues = async (year: number, buildingId?: string): Promise<Mont
 
         const extraFees: Record<string, number> = {};
         dueRecord?.extra_fees?.forEach((f: any) => {
-            extraFees[f.fee_name] = f.amount;
+            const feeName = f.fee_name;
+            const amount = Number(f.amount) || 0;
+            extraFees[feeName] = (extraFees[feeName] || 0) + amount;
         });
 
         return {
@@ -390,7 +399,8 @@ export const updateDuesPayment = async (
     month: string,
     amount: number,
     year: number,
-    block?: string
+    block?: string,
+    buildingId?: string
 ): Promise<void> => {
     if (!(await waitForDb())) return;
     let query = supabase
@@ -399,6 +409,7 @@ export const updateDuesPayment = async (
         .eq('apartment_number', apartmentNumber);
 
     if (block !== undefined) query = query.eq('block', block);
+    if (buildingId) query = query.eq('building_id', buildingId);
 
     const { data: apt, error: aptError } = await query.single();
 
@@ -459,7 +470,8 @@ export const updateElevatorPayment = async (
     apartmentNumber: number,
     amount: number,
     year: number,
-    block?: string
+    block?: string,
+    buildingId?: string
 ): Promise<void> => {
     if (!(await waitForDb())) return;
     let query = supabase
@@ -468,6 +480,7 @@ export const updateElevatorPayment = async (
         .eq('apartment_number', apartmentNumber);
 
     if (block !== undefined) query = query.eq('block', block);
+    if (buildingId) query = query.eq('building_id', buildingId);
 
     const { data: apt, error: aptError } = await query.single();
 
@@ -509,7 +522,8 @@ export const updateExtraFee = async (
     feeName: string,
     amount: number,
     year: number,
-    block?: string
+    block?: string,
+    buildingId?: string
 ): Promise<void> => {
     if (!(await waitForDb())) return;
     let query = supabase
@@ -518,6 +532,7 @@ export const updateExtraFee = async (
         .eq('apartment_number', apartmentNumber);
 
     if (block !== undefined) query = query.eq('block', block);
+    if (buildingId) query = query.eq('building_id', buildingId);
 
     const { data: apt, error: aptError } = await query.single();
 
@@ -553,20 +568,72 @@ export const updateExtraFee = async (
         duesRecord = newDues;
     }
 
-    // Upsert extra fee
-    const { error: feeError } = await supabase
+    // Some databases may not have a UNIQUE(monthly_dues_id, fee_name) constraint.
+    // Use select+update/insert to persist reliably and clean up accidental duplicates.
+    const { data: existingFees, error: existingError } = await supabase
         .from('extra_fees')
-        .upsert({
-            monthly_dues_id: duesRecord.id,
-            fee_name: feeName,
-            amount,
-        }, {
-            onConflict: 'monthly_dues_id,fee_name'
-        });
+        .select('id')
+        .eq('monthly_dues_id', duesRecord.id)
+        .eq('fee_name', feeName)
+        .order('id', { ascending: true });
 
-    if (feeError) {
-        handleDbError(feeError, 'updateExtraFee.feeUpsert');
-        throw feeError;
+    if (existingError) {
+        handleDbError(existingError, 'updateExtraFee.findExisting');
+        throw existingError;
+    }
+
+    const existingIds = (existingFees || []).map((f: any) => f.id);
+
+    if (amount <= 0) {
+        if (existingIds.length > 0) {
+            const { error: deleteError } = await supabase
+                .from('extra_fees')
+                .delete()
+                .in('id', existingIds);
+
+            if (deleteError) {
+                handleDbError(deleteError, 'updateExtraFee.delete');
+                throw deleteError;
+            }
+        }
+    } else if (existingIds.length > 0) {
+        const primaryId = existingIds[0];
+        const duplicateIds = existingIds.slice(1);
+
+        const { error: updateError } = await supabase
+            .from('extra_fees')
+            .update({ amount })
+            .eq('id', primaryId);
+
+        if (updateError) {
+            handleDbError(updateError, 'updateExtraFee.update');
+            throw updateError;
+        }
+
+        if (duplicateIds.length > 0) {
+            const { error: dedupeError } = await supabase
+                .from('extra_fees')
+                .delete()
+                .in('id', duplicateIds);
+
+            if (dedupeError) {
+                handleDbError(dedupeError, 'updateExtraFee.dedupe');
+                throw dedupeError;
+            }
+        }
+    } else {
+        const { error: insertError } = await supabase
+            .from('extra_fees')
+            .insert({
+                monthly_dues_id: duesRecord.id,
+                fee_name: feeName,
+                amount,
+            });
+
+        if (insertError) {
+            handleDbError(insertError, 'updateExtraFee.insert');
+            throw insertError;
+        }
     }
 
     await recalculateDuesTotals(duesRecord.id);

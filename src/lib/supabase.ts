@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getActiveBuildingId, setActiveBuildingId } from './buildingSelection';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -23,77 +24,32 @@ export const signIn = async (email: string, password: string) => {
 export const signInWithAccessCode = async (accessCode: string) => {
     const codeUpper = accessCode.toUpperCase();
 
-    // 1) Supabase RPC ile erişim kodunu doğrula (RLS'yi bypass eder)
-    try {
-        const { data: apt, error } = await supabase
-            .rpc('verify_access_code', { p_access_code: codeUpper });
+    const { data: apt, error } = await supabase
+        .rpc('verify_access_code', { p_access_code: codeUpper });
 
-        if (!error && apt) {
-            // building_id'yi localStorage'a kaydet (sakin de doğru binaya bağlansın)
-            if (apt.building_id) {
-                localStorage.setItem('selectedBuildingId', apt.building_id);
-            }
-
-            const residentSession = {
-                apartmentId: apt.apartment_number,
-                residentName: apt.resident_name,
-                blok: apt.block || null,
-                accessCode: codeUpper,
-                role: 'resident',
-                buildingId: apt.building_id || null,
-                loginTime: new Date().toISOString()
-            };
-            localStorage.setItem('residentSession', JSON.stringify(residentSession));
-            return {
-                user: {
-                    id: `resident_${apt.building_id}_${apt.apartment_number}_${apt.block || 'default'}`,
-                    email: `daire${apt.apartment_number}.${apt.block || 'default'}.${apt.building_id}@resident.local`,
-                    role: 'resident'
-                },
-                session: residentSession
-            };
-        }
-    } catch (dbErr) {
-        console.warn('DB access code RPC failed, falling back to localStorage', dbErr);
-    }
-
-    // 2) Fallback: localStorage'da kontrol et (geriye dönük uyumluluk)
-    const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
-    const apartmentId = Object.keys(accessCodes).find(key =>
-        accessCodes[key].code === accessCode ||
-        (accessCodes[key].code && accessCodes[key].code.toUpperCase() === codeUpper)
-    );
-
-    if (!apartmentId) {
-        if (accessCodes[accessCode]) {
-            const residentSession = {
-                apartmentId: accessCodes[accessCode].apartmentId,
-                residentName: accessCodes[accessCode].residentName || '',
-                accessCode,
-                role: 'resident',
-                loginTime: new Date().toISOString()
-            };
-            localStorage.setItem('residentSession', JSON.stringify(residentSession));
-            return {
-                user: { id: `resident_${accessCode}`, email: `${accessCode}@resident.local`, role: 'resident' },
-                session: residentSession
-            };
-        }
+    if (error || !apt) {
         throw new Error('Geçersiz erişim kodu');
     }
 
     const residentSession = {
-        apartmentId: parseInt(apartmentId),
-        residentName: accessCodes[apartmentId]?.residentName || '',
-        accessCode,
+        apartmentId: apt.apartment_number,
+        residentName: apt.resident_name,
+        blok: apt.block || null,
+        accessCode: codeUpper,
         role: 'resident',
+        buildingId: apt.building_id || null,
         loginTime: new Date().toISOString()
     };
+
+    if (apt.building_id) {
+        setActiveBuildingId(apt.building_id);
+    }
+
     localStorage.setItem('residentSession', JSON.stringify(residentSession));
     return {
         user: {
-            id: `resident_${accessCode}`,
-            email: `${accessCode}@resident.local`,
+            id: `resident_${apt.building_id}_${apt.apartment_number}_${apt.block || 'default'}`,
+            email: `daire${apt.apartment_number}.${apt.block || 'default'}.${apt.building_id}@resident.local`,
             role: 'resident'
         },
         session: residentSession
@@ -110,14 +66,21 @@ export const signUp = async (email: string, password: string) => {
     return data;
 };
 
-export const signOut = async () => {
-    // Clear resident session and profile cache from localStorage
-    localStorage.removeItem('residentSession');
+export const sendPasswordResetEmail = async (email: string) => {
+    const redirectTo = `${window.location.origin}${window.location.pathname}#/login`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) throw error;
+};
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-        localStorage.removeItem(`profile_${user.id}`);
-    }
+export const updateCurrentUserPassword = async (newPassword: string) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw error;
+};
+
+export const signOut = async () => {
+    // Clear resident session from localStorage
+    localStorage.removeItem('residentSession');
+    setActiveBuildingId(null);
 
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
@@ -151,51 +114,13 @@ export const getCurrentUser = async () => {
         }
 
         // Use RPC to bypass RLS on users table
-        try {
-            const { data: profile, error: profileError } = await supabase.rpc('get_my_profile');
+        const { data: profile, error: profileError } = await supabase.rpc('get_my_profile');
 
-            if (profileError || !profile) {
-                console.warn('User profile not found in database or RPC error, checking local cache');
-
-                // Fallback to local cache if possible
-                const cachedProfile = localStorage.getItem(`profile_${user.id}`);
-                if (cachedProfile) {
-                    console.log('Using cached profile from localStorage');
-                    return { ...user, profile: JSON.parse(cachedProfile) };
-                }
-
-                return {
-                    ...user,
-                    profile: {
-                        id: user.id,
-                        role: 'admin',
-                        apartment_id: null,
-                        access_code: null,
-                        building_id: null
-                    }
-                };
-            }
-
-            // Cache for offline use
-            localStorage.setItem(`profile_${user.id}`, JSON.stringify(profile));
-            return { ...user, profile };
-        } catch (rpcErr) {
-            console.error('getCurrentUser - Profile RPC failed, checking local cache:', rpcErr);
-            const cachedProfile = localStorage.getItem(`profile_${user.id}`);
-            if (cachedProfile) {
-                return { ...user, profile: JSON.parse(cachedProfile) };
-            }
-            return {
-                ...user,
-                profile: {
-                    id: user.id,
-                    role: 'admin',
-                    apartment_id: null,
-                    access_code: null,
-                    building_id: null
-                }
-            };
+        if (profileError || !profile) {
+            throw profileError || new Error('User profile not found');
         }
+
+        return { ...user, profile };
     } catch (authErr) {
         console.error('getCurrentUser - Auth getUser failed:', authErr);
         return null;
@@ -203,74 +128,26 @@ export const getCurrentUser = async () => {
 };
 
 export const generateAccessCode = async (apartmentId: number): Promise<string> => {
-    // Generate a random 6-digit code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // For now, just store the code in localStorage as a temporary solution
-    // until we have proper admin API access
-    const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
-    accessCodes[code] = {
-        apartmentId,
-        createdAt: new Date().toISOString()
-    };
-    localStorage.setItem('accessCodes', JSON.stringify(accessCodes));
-
-    return code;
+    throw new Error(`generateAccessCode is disabled in DB-only mode (apartmentId=${apartmentId})`);
 };
 // Erişim kodu oluştur ve Supabase'de hem apartments hem users tablosuna kaydet
 export const generateAndSaveAccessCode = async (apartmentNumber: number, residentName: string, blok?: string): Promise<string> => {
-    const buildingId = localStorage.getItem('selectedBuildingId') || null;
+    const buildingId = getActiveBuildingId() || await getBuildingId();
 
     // Tek RPC çağrısı ile her şeyi yap: kod üret + apartments güncelle + users'a ekle
-    try {
-        const { data, error } = await supabase.rpc('generate_access_code_and_user', {
-            p_apartment_number: apartmentNumber,
-            p_resident_name: residentName,
-            p_building_id: buildingId,
-            p_blok: blok
-        });
+    const { data, error } = await supabase.rpc('generate_access_code_and_user', {
+        p_apartment_number: apartmentNumber,
+        p_resident_name: residentName,
+        p_building_id: buildingId,
+        p_blok: blok
+    });
 
-        if (error) {
-            console.error('generate_access_code_and_user RPC error:', error);
-        } else if (data) {
-            const code = data as string;
-            console.log(`✅ Access code generated & resident user created for apartment ${apartmentNumber} (${blok || 'no block'}): ${code}`);
-
-            // localStorage'a da yaz (geriye dönük uyumluluk)
-            const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
-            const storageKey = blok ? `${apartmentNumber}_${blok}` : String(apartmentNumber);
-            accessCodes[storageKey] = {
-                code: code,
-                createdAt: new Date().toISOString(),
-                residentName,
-                blok
-            };
-            localStorage.setItem('accessCodes', JSON.stringify(accessCodes));
-
-            return code;
-        }
-    } catch (err) {
-        console.error('generate_access_code_and_user failed:', err);
+    if (error || !data) {
+        throw error || new Error('Erişim kodu üretilemedi');
     }
 
-    // Fallback: RPC başarısız olursa client-side kod üret (sadece localStorage)
-    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-        code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    console.warn(`⚠️ Fallback: Access code generated client-side for apartment ${apartmentNumber} (${blok || 'no block'}): ${code}`);
-
-    const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
-    const storageKey = blok ? `${apartmentNumber}_${blok}` : String(apartmentNumber);
-    accessCodes[storageKey] = {
-        code: code,
-        createdAt: new Date().toISOString(),
-        residentName,
-        blok
-    };
-    localStorage.setItem('accessCodes', JSON.stringify(accessCodes));
-
+    const code = data as string;
+    console.log(`✅ Access code generated & resident user created for apartment ${apartmentNumber} (${blok || 'no block'}): ${code}`);
     return code;
 };
 

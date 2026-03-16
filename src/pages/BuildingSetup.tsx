@@ -7,6 +7,7 @@ import { Building2, KeyRound, LogOut, PlusCircle, ChevronRight, Check } from "lu
 import { getCurrentUser, supabase } from "@/lib/supabase";
 import * as api from "@/lib/api";
 import { toast } from "sonner";
+import { setActiveBuildingId } from "@/lib/buildingSelection";
 
 interface BuildingInfo {
     id: string;
@@ -71,7 +72,7 @@ const BuildingSetup = ({ onBuildingSelected }: BuildingSetupProps) => {
     }, []);
 
     const handleSelectBuilding = (buildingId: string) => {
-        localStorage.setItem("selectedBuildingId", buildingId);
+        setActiveBuildingId(buildingId);
         onBuildingSelected(buildingId);
     };
 
@@ -102,18 +103,7 @@ const BuildingSetup = ({ onBuildingSelected }: BuildingSetupProps) => {
                 toast.success("Apartmana başarıyla kaydedildiniz!");
                 onBuildingSelected(newBuildingId);
             } else {
-                // Geçersiz kod dene
-                const { data: bData } = await supabase
-                    .from('buildings')
-                    .select('id, name')
-                    .eq('access_code', code.trim().toUpperCase())
-                    .single();
-                if (bData) {
-                    toast.success(`"${bData.name}" binasına bağlanıldı!`);
-                    handleSelectBuilding(bData.id);
-                } else {
-                    toast.error("Geçersiz bina kodu. Lütfen kontrol edip tekrar deneyin.");
-                }
+                toast.error("Bina kodu doğrulandı fakat hesabınıza yetki atanamadı. Lütfen yöneticiye danışın.");
             }
         } catch (error: any) {
             toast.error(error.message || "Geçersiz bina kodu");
@@ -123,7 +113,7 @@ const BuildingSetup = ({ onBuildingSelected }: BuildingSetupProps) => {
     };
 
     const handleLogout = async () => {
-        localStorage.removeItem('selectedBuildingId');
+        setActiveBuildingId(null);
         await supabase.auth.signOut();
         window.location.hash = '#/login';
     };

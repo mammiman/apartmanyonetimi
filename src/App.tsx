@@ -18,12 +18,14 @@ import { DataProvider } from "@/context/DataContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { DataLoadingWrapper } from "@/components/DataLoadingWrapper";
 import { supabase } from "@/lib/supabase";
+import { getActiveBuildingId, onActiveBuildingChange, setActiveBuildingId } from "@/lib/buildingSelection";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const queryClient = new QueryClient();
 
 const App = () => {
   const [buildingId, setBuildingId] = useState<string | null>(
-    localStorage.getItem("selectedBuildingId")
+    getActiveBuildingId()
   );
 
   const isResident = !!localStorage.getItem('residentSession');
@@ -45,11 +47,16 @@ const App = () => {
       }
     };
     checkAuth();
+
+    const unsubscribe = onActiveBuildingChange((id) => {
+      setBuildingId(id);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleBuildingSelected = (id: string) => {
-    localStorage.setItem("selectedBuildingId", id);
-    setBuildingId(id);
+    setActiveBuildingId(id);
   };
 
   // Auth kontrolü bitmeden ekran gösterme
@@ -72,34 +79,36 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <DataProvider>
-          <DataLoadingWrapper>
-            <HashRouter>
-              {showBuildingSetup ? (
-                <Routes>
-                  <Route path="/login" element={<Login />} />
-                  <Route path="*" element={<BuildingSetup onBuildingSelected={handleBuildingSelected} />} />
-                </Routes>
-              ) : (
-                <Routes>
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-                  <Route path="/resident" element={<ProtectedRoute><ResidentDashboard /></ProtectedRoute>} />
-                  <Route path="/daireler" element={<ProtectedRoute requireAdmin><Apartments /></ProtectedRoute>} />
-                  <Route path="/aidat" element={<ProtectedRoute requireAdmin><DuesSchedule /></ProtectedRoute>} />
-                  <Route path="/isletme-defteri" element={<ProtectedRoute requireAdmin><OperatingLedger /></ProtectedRoute>} />
-                  <Route path="/personel" element={<ProtectedRoute requireAdmin><Staff /></ProtectedRoute>} />
-                  <Route path="/kullanici-yonetimi" element={<ProtectedRoute requireAdmin><Register /></ProtectedRoute>} />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              )}
-            </HashRouter>
-          </DataLoadingWrapper>
-        </DataProvider>
-      </TooltipProvider>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <DataProvider>
+            <DataLoadingWrapper>
+              <HashRouter>
+                {showBuildingSetup ? (
+                  <Routes>
+                    <Route path="/login" element={<Login />} />
+                    <Route path="*" element={<BuildingSetup onBuildingSelected={handleBuildingSelected} />} />
+                  </Routes>
+                ) : (
+                  <Routes>
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                    <Route path="/resident" element={<ProtectedRoute><ResidentDashboard /></ProtectedRoute>} />
+                    <Route path="/daireler" element={<ProtectedRoute requireAdmin><Apartments /></ProtectedRoute>} />
+                    <Route path="/aidat" element={<ProtectedRoute requireAdmin><DuesSchedule /></ProtectedRoute>} />
+                    <Route path="/isletme-defteri" element={<ProtectedRoute requireAdmin><OperatingLedger /></ProtectedRoute>} />
+                    <Route path="/personel" element={<ProtectedRoute requireAdmin><Staff /></ProtectedRoute>} />
+                    <Route path="/kullanici-yonetimi" element={<ProtectedRoute requireAdmin><Register /></ProtectedRoute>} />
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                )}
+              </HashRouter>
+            </DataLoadingWrapper>
+          </DataProvider>
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 };

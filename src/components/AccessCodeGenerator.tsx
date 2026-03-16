@@ -20,7 +20,7 @@ export const AccessCodeGenerator = ({ apartmentNo, residentName, onClose, block,
     const [accessCode, setAccessCode] = useState('');
     const [isLoading, setIsLoading] = useState(true);
 
-    // Bilesen acildiginda mevcut kodu kontrol et (once DB, sonra localStorage)
+    // Bilesen acildiginda mevcut kodu sadece DB'den kontrol et
     useEffect(() => {
         const checkExistingCode = async () => {
             setIsLoading(true);
@@ -37,20 +37,13 @@ export const AccessCodeGenerator = ({ apartmentNo, residentName, onClose, block,
 
                 if (!error && data?.access_code) {
                     setAccessCode(data.access_code);
-                    setIsLoading(false);
-                    return;
                 }
             } catch (err) {
                 console.warn('DB access code check failed:', err);
+                toast.error('Erisim kodu DBden okunamadi.');
+            } finally {
+                setIsLoading(false);
             }
-
-            // 2) Fallback: localStorage
-            const accessCodes = JSON.parse(localStorage.getItem('accessCodes') || '{}');
-            const storageKey = block ? `${apartmentNo}_${block}` : String(apartmentNo);
-            if (accessCodes[storageKey]?.code) {
-                setAccessCode(accessCodes[storageKey].code);
-            }
-            setIsLoading(false);
         };
 
         checkExistingCode();

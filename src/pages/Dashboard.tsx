@@ -44,6 +44,7 @@ import { printReceipt } from "@/lib/printUtils"; // Import moved here
 const Dashboard = () => {
   const {
     dues: duesSchedule,
+    duesColumns,
     monthlySummary,
     year,
     startNewYear,
@@ -342,14 +343,26 @@ const Dashboard = () => {
 
   // Kümülatif kasa (başlangıç = devir bakiyesi)
   let cumulativeKasa = devirGelir;
+  const normalizeMonthKey = (month: string) => month.toLocaleUpperCase('tr-TR');
+  const icmalExtraColumns = (duesColumns || []).filter(Boolean);
 
   const icmalRows = ICMAL_MONTHS.map(month => {
     const monthLedger = ledger[month];
+    const normalizedMonth = normalizeMonthKey(month);
 
-    // GELİR ve GİDER: doğrudan ledger toplamları
-    const gelir = monthLedger
-      ? (monthLedger.gelirler || []).reduce((s, r) => s + r.tutar, 0)
-      : 0;
+    const ledgerGelirler = monthLedger?.gelirler || [];
+    const ledgerAidatGelir = ledgerGelirler
+      .filter(r => r.kategori === 'Aidat Ödemesi' || String(r.aciklama).startsWith('aidat_dues_'))
+      .reduce((s, r) => s + r.tutar, 0);
+
+    const duesAidatGelir = duesSchedule.reduce((sum, due) => {
+      const monthPayment = due.odemeler?.[normalizedMonth] ?? due.odemeler?.[month] ?? 0;
+      return sum + (monthPayment || 0);
+    }, 0);
+
+    // GELİR: ledger toplamını aidat çizelgesi ile uzlaştır.
+    // Böylece aidat ekranında ekleme/silme doğrudan icmale yansır.
+    const gelir = (ledgerGelirler.reduce((s, r) => s + r.tutar, 0) - ledgerAidatGelir) + duesAidatGelir;
     const gider = monthLedger
       ? (monthLedger.giderler || []).reduce((s, r) => s + r.tutar, 0)
       : 0;
@@ -363,12 +376,15 @@ const Dashboard = () => {
         .reduce((s, r) => s + r.tutar, 0)
       : 0;
 
-    // DİYAFON: 'Diyafon' kategorisi VEYA açıklamada 'diyafon' geçen giderler
-    const diyafon = monthLedger
-      ? (monthLedger.giderler || [])
-        .filter(r => r.kategori === 'Diyafon' || r.aciklama?.toLowerCase().includes('diyafon'))
-        .reduce((s, r) => s + r.tutar, 0)
-      : 0;
+    // Aidat çizelgesindeki ek sütunları (örn. Su, Yakıt vb.) icmale dinamik yansıt.
+    const extraByColumn = icmalExtraColumns.reduce((acc, col) => {
+      acc[col] = monthLedger
+        ? (monthLedger.gelirler || [])
+          .filter(r => r.kategori === col)
+          .reduce((s, r) => s + r.tutar, 0)
+        : 0;
+      return acc;
+    }, {} as Record<string, number>);
 
     // monthlySummary'den banka bakiyesi (manuel düzenleme destekli)
     // NOT: ?? operatörü 0'ı null olarak görmez, bu yüzden açıkça kontrol ediyoruz
@@ -385,7 +401,7 @@ const Dashboard = () => {
       gelir, 
       gider, 
       asansor, 
-      diyafon, 
+      extraByColumn,
       kasa: cumulativeKasa, 
       banka: bankaValue, 
       fark: eldekiNakit 
@@ -396,11 +412,16 @@ const Dashboard = () => {
   const lastRowWithBanka = [...icmalRows].reverse().find(r => r.gelir > 0 || r.gider > 0);
   const toplamBanka = lastRowWithBanka ? lastRowWithBanka.banka : cumulativeKasa;
 
+  const icmalExtraToplam = icmalExtraColumns.reduce((acc, col) => {
+    acc[col] = icmalRows.reduce((s, r) => s + (r.extraByColumn?.[col] || 0), 0);
+    return acc;
+  }, {} as Record<string, number>);
+
   const icmalToplamPre = {
     gelir: icmalRows.reduce((s, r) => s + r.gelir, 0) + devirGelir,
     gider: icmalRows.reduce((s, r) => s + r.gider, 0),
     asansor: icmalRows.reduce((s, r) => s + r.asansor, 0),
-    diyafon: icmalRows.reduce((s, r) => s + r.diyafon, 0),
+    extraByColumn: icmalExtraToplam,
     kasa: cumulativeKasa,
     banka: toplamBanka,
   };
@@ -720,9 +741,16 @@ const Dashboard = () => {
               <table className="w-full text-xs border-collapse" style={{ fontFamily: 'Arial, sans-serif' }}>
                 <thead>
                   <tr className="bg-gray-800 text-white">
-                    {['AYLAR', 'GELİR', 'GİDER', 'ASANSÖR', 'DİYAFON', 'KASA', 'BANKA', 'FARK'].map(h => (
-                      <th key={h} className="border border-gray-600 px-3 py-2.5 text-center font-bold whitespace-nowrap text-[11px] tracking-wider">{h}</th>
+                    <th className="border border-gray-600 px-3 py-2.5 text-center font-bold whitespace-nowrap text-[11px] tracking-wider">AYLAR</th>
+                    <th className="border border-gray-600 px-3 py-2.5 text-center font-bold whitespace-nowrap text-[11px] tracking-wider">GELİR</th>
+                    <th className="border border-gray-600 px-3 py-2.5 text-center font-bold whitespace-nowrap text-[11px] tracking-wider">GİDER</th>
+                    <th className="border border-gray-600 px-3 py-2.5 text-center font-bold whitespace-nowrap text-[11px] tracking-wider">ASANSÖR</th>
+                    {icmalExtraColumns.map(col => (
+                      <th key={col} className="border border-gray-600 px-3 py-2.5 text-center font-bold whitespace-nowrap text-[11px] tracking-wider uppercase">{col}</th>
                     ))}
+                    <th className="border border-gray-600 px-3 py-2.5 text-center font-bold whitespace-nowrap text-[11px] tracking-wider">KASA</th>
+                    <th className="border border-gray-600 px-3 py-2.5 text-center font-bold whitespace-nowrap text-[11px] tracking-wider">BANKA</th>
+                    <th className="border border-gray-600 px-3 py-2.5 text-center font-bold whitespace-nowrap text-[11px] tracking-wider">FARK</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -738,6 +766,9 @@ const Dashboard = () => {
                       <td className="border border-slate-300 dark:border-slate-600 px-3 py-2"></td>
                       <td className="border border-slate-300 dark:border-slate-600 px-3 py-2"></td>
                       <td className="border border-slate-300 dark:border-slate-600 px-3 py-2"></td>
+                      {icmalExtraColumns.map(col => (
+                        <td key={`devir-${col}`} className="border border-slate-300 dark:border-slate-600 px-3 py-2"></td>
+                      ))}
                       <td className="border border-slate-300 dark:border-slate-600 px-3 py-2"></td>
                       <td className="border border-slate-300 dark:border-slate-600 px-3 py-2"></td>
                       <td className="border border-slate-300 dark:border-slate-600 px-3 py-2"></td>
@@ -783,14 +814,12 @@ const Dashboard = () => {
                           )}
                         </td>
 
-                        {/* DİYAFON */}
-                        <td className="border border-slate-300 dark:border-slate-600 px-1 py-1 text-right">
-                          {isEditingIcmal ? (
-                            <input type="number" className="w-full text-right bg-white border border-slate-300 rounded px-1 py-0.5 text-xs min-w-[60px]" defaultValue={row.diyafon} onBlur={e => updateMonthlySummaryRow(row.month, 'diyafon' as any, parseFloat(e.target.value) || 0)} />
-                          ) : (
-                            <span className="text-slate-600 dark:text-slate-300">{row.diyafon > 0 ? fmt(row.diyafon) : ''}</span>
-                          )}
-                        </td>
+                        {/* Aidat çizelgesindeki dinamik ek sütunlar */}
+                        {icmalExtraColumns.map(col => (
+                          <td key={`${row.month}-${col}`} className="border border-slate-300 dark:border-slate-600 px-1 py-1 text-right">
+                            <span className="text-slate-600 dark:text-slate-300">{(row.extraByColumn?.[col] || 0) > 0 ? fmt(row.extraByColumn[col]) : ''}</span>
+                          </td>
+                        ))}
 
                         {/* KASA */}
                         <td className="border border-slate-300 dark:border-slate-600 px-1 py-1 text-right bg-yellow-50/50 dark:bg-yellow-950/10">
@@ -822,7 +851,9 @@ const Dashboard = () => {
                     <td className="border border-gray-600 px-3 py-2.5 text-right text-green-300">{fmt(icmalToplam.gelir)}</td>
                     <td className="border border-gray-600 px-3 py-2.5 text-right text-red-300">{fmt(icmalToplam.gider)}</td>
                     <td className="border border-gray-600 px-3 py-2.5 text-right text-gray-300">{fmt(icmalToplam.asansor)}</td>
-                    <td className="border border-gray-600 px-3 py-2.5 text-right text-gray-300">{fmt(icmalToplam.diyafon)}</td>
+                    {icmalExtraColumns.map(col => (
+                      <td key={`toplam-${col}`} className="border border-gray-600 px-3 py-2.5 text-right text-gray-300">{fmt(icmalToplam.extraByColumn?.[col] || 0)}</td>
+                    ))}
                     <td className="border border-gray-600 px-3 py-2.5 text-right text-amber-200">{fmt(icmalToplam.kasa)}</td>
                     <td className={`border border-gray-600 px-1 py-1 text-right text-amber-200 ${isEditingIcmal ? 'bg-amber-900/20' : ''}`}>
                       {isEditingIcmal ? (

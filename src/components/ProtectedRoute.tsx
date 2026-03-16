@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { getCurrentUser, supabase } from "@/lib/supabase";
 import * as api from "@/lib/api";
+import { getActiveBuildingId, setActiveBuildingId } from "@/lib/buildingSelection";
 
 interface ProtectedRouteProps {
     children: ReactNode;
@@ -76,6 +77,30 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
                 console.log('checkUser - Supabase user:', currentUser);
 
                 if (currentUser) {
+                    // Guard against stale/tampered building selection in localStorage.
+                    if (currentUser.profile?.role === 'admin' || currentUser.profile?.role === 'pending') {
+                        try {
+                            const localBuildingId = getActiveBuildingId();
+                            const userBuildings = await api.fetchUserBuildings();
+                            const allowedBuildingIds = new Set(userBuildings.map(b => b.id));
+
+                            if (localBuildingId && allowedBuildingIds.size > 0 && !allowedBuildingIds.has(localBuildingId)) {
+                                console.warn('[AUTH-BUILDING] Unauthorized selectedBuildingId detected. Clearing selection.');
+                                setActiveBuildingId(null);
+                            }
+
+                            if (!getActiveBuildingId()) {
+                                if (userBuildings.length === 1) {
+                                    setActiveBuildingId(userBuildings[0].id);
+                                } else if (currentUser.profile?.building_id) {
+                                    setActiveBuildingId(currentUser.profile.building_id);
+                                }
+                            }
+                        } catch (buildingCheckError) {
+                            console.warn('[AUTH-BUILDING] Membership check failed:', buildingCheckError);
+                        }
+                    }
+
                     setUser(currentUser);
                     setIsLoading(false);
                     return;
@@ -118,7 +143,7 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
     // If user is admin (or pending), enforce building access
     if (user && (user.profile?.role === 'admin' || user.profile?.role === 'pending')) {
         const dbBuildingId = user.profile?.building_id;
-        const localBuildingId = localStorage.getItem("selectedBuildingId");
+        const localBuildingId = getActiveBuildingId();
         const isPending = user.profile?.role === 'pending';
 
         console.log(`[AUTH-CHECK] DB=${dbBuildingId}, Local=${localBuildingId}, Role=${user.profile?.role}`);
@@ -138,7 +163,7 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
                         </p>
                         <button
                             onClick={() => {
-                                localStorage.removeItem('selectedBuildingId');
+                                setActiveBuildingId(null);
                                 supabase.auth.signOut();
                                 window.location.hash = "#/login";
                                 window.location.reload();
@@ -156,8 +181,8 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
         // Eğer selectedBuildingId yoksa ya da kullanıcının izinli binalarından değilse BuildingSetup'a yönlendir
         if (!localBuildingId) {
             console.log('[AUTH-NO-BUILDING] No building selected, showing building setup');
-            localStorage.removeItem("selectedBuildingId");
-            window.location.reload();
+            setActiveBuildingId(null);
+            window.location.hash = '#/';
             return null;
         }
 

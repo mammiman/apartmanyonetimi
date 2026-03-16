@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner";
 import * as api from "@/lib/api";
 import { generateAndSaveAccessCode, supabase, getBuildingId } from "@/lib/supabase";
+import { getActiveBuildingId, onActiveBuildingChange, setActiveBuildingId } from "@/lib/buildingSelection";
 
 // Define App Data Structure for yearly storage
 export interface ExpenseItem {
@@ -41,15 +42,6 @@ export interface Announcement {
     message: string;
     photoId?: string;
     date: string;
-}
-
-interface AppData {
-    dues: MonthlyDues[];
-    ledger: LedgerParams;
-    monthlySummary: MonthlySummary[];
-    staffRecords: StaffRecord[];
-    apartments: Apartment[];
-    duesColumns: string[];
 }
 
 interface DataContextType {
@@ -113,32 +105,16 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    // Building-scoped localStorage key helper - reactive state so re-fetch fires on login
+    // Active building is session-memory state, authoritative data always comes from DB.
     const [buildingId, setBuildingId] = useState<string>(
-        () => localStorage.getItem("selectedBuildingId") || "default"
+        () => getActiveBuildingId() || "default"
     );
-    const bKey = (key: string) => `b_${buildingId}_${key}`;
 
-    // Farklı cihazdan giriş sonrası selectedBuildingId set edildiğinde algıla
     useEffect(() => {
-        const handleStorage = (e: StorageEvent) => {
-            if (e.key === "selectedBuildingId" && e.newValue && e.newValue !== buildingId) {
-                setBuildingId(e.newValue);
-            }
-        };
-        // Aynı sekme içindeki değişiklikler için polling (localStorage event yalnızca diğer sekmelere gider)
-        const interval = setInterval(() => {
-            const current = localStorage.getItem("selectedBuildingId") || "default";
-            if (current !== buildingId) {
-                setBuildingId(current);
-            }
-        }, 500);
-        window.addEventListener("storage", handleStorage);
-        return () => {
-            window.removeEventListener("storage", handleStorage);
-            clearInterval(interval);
-        };
-    }, [buildingId]);
+        return onActiveBuildingChange((id) => {
+            setBuildingId(id || "default");
+        });
+    }, []);
 
     // Loading state - DB'den veri çekilene kadar true
     const [isLoading, setIsLoading] = useState(true);
@@ -147,53 +123,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initialLoadDone = useRef(false);
 
     // Current Year State
-    const [year, setYear] = useState<number>(() => {
-        const saved = localStorage.getItem(bKey("app_year"));
-        return saved ? parseInt(saved) : new Date().getFullYear();
-    });
+    const [year, setYear] = useState<number>(new Date().getFullYear());
 
-    // We keep "Active" state for immediate binding - localStorage is cache only
-    const [dues, setDues] = useState<MonthlyDues[]>(() => {
-        const saved = localStorage.getItem(bKey("app_dues"));
-        return saved ? JSON.parse(saved) : initialDues;
-    });
+    const [dues, setDues] = useState<MonthlyDues[]>(initialDues);
 
-    const [apartments, setApartments] = useState<Apartment[]>(() => {
-        const saved = localStorage.getItem(bKey("app_apartments"));
-        return saved ? JSON.parse(saved) : initialApartments;
-    });
+    const [apartments, setApartments] = useState<Apartment[]>(initialApartments);
 
-    const [staffRecords, setStaffRecords] = useState<StaffRecord[]>(() => {
-        const saved = localStorage.getItem(bKey("app_staffRecords"));
-        return saved ? JSON.parse(saved) : initialStaffRecords;
-    });
+    const [staffRecords, setStaffRecords] = useState<StaffRecord[]>(initialStaffRecords);
 
-    const [monthlySummary, setMonthlySummary] = useState<MonthlySummary[]>(() => {
-        const saved = localStorage.getItem(bKey("app_monthlySummary"));
-        return saved ? JSON.parse(saved) : initialMonthlySummary;
-    });
+    const [monthlySummary, setMonthlySummary] = useState<MonthlySummary[]>(initialMonthlySummary);
 
-    const [ledger, setLedger] = useState<LedgerParams>(() => {
-        const saved = localStorage.getItem(bKey("app_ledger"));
-        return saved ? JSON.parse(saved) : initialLedgerData;
-    });
+    const [ledger, setLedger] = useState<LedgerParams>(initialLedgerData);
 
-    const [duesColumns, setDuesColumns] = useState<string[]>(() => {
-        const saved = localStorage.getItem(bKey("app_duesColumns"));
-        return saved ? JSON.parse(saved) : [];
-    });
+    const [duesColumns, setDuesColumns] = useState<string[]>([]);
 
     // Sütun ücretleri
-    const [duesColumnFees, setDuesColumnFees] = useState<Record<string, number>>(() => {
-        const saved = localStorage.getItem(bKey("app_duesColumnFees"));
-        return saved ? JSON.parse(saved) : {};
-    });
+    const [duesColumnFees, setDuesColumnFees] = useState<Record<string, number>>({});
 
     // Aylık aidat tutarı
-    const [monthlyDuesAmount, setMonthlyDuesAmount] = useState<number>(() => {
-        const saved = localStorage.getItem(bKey("app_monthlyDuesAmount"));
-        return saved ? parseFloat(saved) : MONTHLY_DUES;
-    });
+    const [monthlyDuesAmount, setMonthlyDuesAmount] = useState<number>(MONTHLY_DUES);
 
     // Mevcut ay index'i (canlı tarih)
     const currentMonthIndex = (() => {
@@ -202,21 +150,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })();
 
     // Apartman Adı
-    const [apartmentName, setApartmentName] = useState<string>(() => {
-        return localStorage.getItem(bKey("app_apartmentName")) || "Apartman";
-    });
+    const [apartmentName, setApartmentName] = useState<string>("Apartman");
 
     // Aylık Asansör Ücreti (unused but kept for compat)
-    const [monthlyElevatorFee, setMonthlyElevatorFee] = useState<number>(() => {
-        const saved = localStorage.getItem(bKey("app_monthlyElevatorFee"));
-        return saved ? parseFloat(saved) : 50;
-    });
+    const [monthlyElevatorFee, setMonthlyElevatorFee] = useState<number>(50);
 
     // Gider Kalemleri
     const [expenseItems, setExpenseItems] = useState<ExpenseItem[]>(() => {
-        const saved = localStorage.getItem(bKey("app_expenseItems"));
-        if (saved) return JSON.parse(saved);
-
         return [
             { id: 1, description: "YÖNETİM VE HUZUR HAKKI", amount: 3000, quantity: 23, unit: "TL" },
             { id: 2, description: "TEMİZLİK MALZ. VE SU GİDERİ", amount: 2000, quantity: 23, unit: "TL" },
@@ -232,58 +172,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     // Loglar
-    const [logs, setLogs] = useState<LogEntry[]>(() => {
-        const saved = localStorage.getItem(bKey("app_logs"));
-        return saved ? JSON.parse(saved) : [];
-    });
+    const [logs, setLogs] = useState<LogEntry[]>([]);
 
     // Personel Bilgileri
-    const [staffName, setStaffName] = useState<string>(() => {
-        return localStorage.getItem(bKey("app_staffName")) || "Belirtilmemiş";
-    });
-    const [staffRole, setStaffRole] = useState<string>(() => {
-        return localStorage.getItem(bKey("app_staffRole")) || "Personel";
-    });
+    const [staffName, setStaffName] = useState<string>("Belirtilmemiş");
+    const [staffRole, setStaffRole] = useState<string>("Personel");
 
     // Store available years
-    const [availableYears, setAvailableYears] = useState<number[]>(() => {
-        const saved = localStorage.getItem(bKey("app_available_years"));
-        return saved ? JSON.parse(saved) : [new Date().getFullYear()];
-    });
+    const [availableYears, setAvailableYears] = useState<number[]>([new Date().getFullYear()]);
 
-    const [bankaToplami, setBankaToplami] = useState<number | null>(() => {
-        const saved = localStorage.getItem(bKey("app_bankaToplami")) || localStorage.getItem('icmal_banka_toplam');
-        return saved !== null ? parseFloat(saved) : null;
-    });
+    const [bankaToplami, setBankaToplami] = useState<number | null>(null);
 
     // Annual Elevator Fee State
-    const [annualElevatorFee, setAnnualElevatorFee] = useState<number>(() => {
-        const saved = localStorage.getItem(bKey("app_annualElevatorFee"));
-        return saved ? parseFloat(saved) : 600;
-    });
+    const [annualElevatorFee, setAnnualElevatorFee] = useState<number>(600);
 
-    const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
-        const saved = localStorage.getItem(bKey("app_announcements"));
-        return saved ? JSON.parse(saved) : [];
-    });
-
-    // ===== localStorage Persistence (cache) =====
-    useEffect(() => { localStorage.setItem(bKey("app_staffName"), staffName); }, [staffName]);
-    useEffect(() => { localStorage.setItem(bKey("app_staffRole"), staffRole); }, [staffRole]);
-    useEffect(() => { localStorage.setItem(bKey("app_apartmentName"), apartmentName); }, [apartmentName]);
-    useEffect(() => { localStorage.setItem(bKey("app_expenseItems"), JSON.stringify(expenseItems)); }, [expenseItems]);
-    useEffect(() => { localStorage.setItem(bKey("app_announcements"), JSON.stringify(announcements)); }, [announcements]);
-    useEffect(() => { localStorage.setItem(bKey("app_logs"), JSON.stringify(logs)); }, [logs]);
-    useEffect(() => { localStorage.setItem(bKey("app_year"), year.toString()); }, [year]);
-    useEffect(() => { localStorage.setItem(bKey("app_dues"), JSON.stringify(dues)); }, [dues]);
-    useEffect(() => { localStorage.setItem(bKey("app_apartments"), JSON.stringify(apartments)); }, [apartments]);
-    useEffect(() => { localStorage.setItem(bKey("app_staffRecords"), JSON.stringify(staffRecords)); }, [staffRecords]);
-    useEffect(() => { localStorage.setItem(bKey("app_monthlySummary"), JSON.stringify(monthlySummary)); }, [monthlySummary]);
-    useEffect(() => { localStorage.setItem(bKey("app_ledger"), JSON.stringify(ledger)); }, [ledger]);
-    useEffect(() => { localStorage.setItem(bKey("app_duesColumns"), JSON.stringify(duesColumns)); }, [duesColumns]);
-    useEffect(() => { localStorage.setItem(bKey("app_monthlyDuesAmount"), monthlyDuesAmount.toString()); }, [monthlyDuesAmount]);
-    useEffect(() => { localStorage.setItem(bKey("app_annualElevatorFee"), annualElevatorFee.toString()); }, [annualElevatorFee]);
-    useEffect(() => { localStorage.setItem(bKey("app_available_years"), JSON.stringify(availableYears)); }, [availableYears]);
+    const [announcements, setAnnouncements] = useState<Announcement[]>([]);
 
     // DB bağlantı durumu - false ise hiçbir save yapılmaz
     const dbConnected = useRef(true);
@@ -306,7 +209,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsDbAvailable(dbOk);
             if (!dbOk) {
                 dbConnected.current = false;
-                console.warn('[DB] Supabase erişilemez - sadece localStorage kullanılacak');
+                console.warn('[DB] Supabase erişilemez - veri yüklenemedi');
                 setIsLoading(false);
                 initialLoadDone.current = true;
                 return;
@@ -315,22 +218,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             dbConnected.current = true;
 
             // Auto-resolve buildingId if not set
-            if (buildingId === 'default') {
+            let currentId = buildingId;
+            if (currentId === 'default') {
                 const profileId = await getBuildingId();
                 if (profileId) {
                     console.log('[DB] Resolved buildingId from profile:', profileId);
-                    localStorage.setItem('selectedBuildingId', profileId);
+                    setActiveBuildingId(profileId);
                     setBuildingId(profileId);
-                    // buildingId state update is async, but we can't wait for it here easily without recursion
-                    // so we re-call refreshData or just use the local profileId for current fetch
+                    currentId = profileId;
                 } else {
-                    console.warn('[DB] No buildingId found in profile or localStorage');
+                    console.warn('[DB] No buildingId found in profile');
                     setIsLoading(false);
                     return;
                 }
             }
 
-            const currentId = buildingId === 'default' ? localStorage.getItem('selectedBuildingId') || 'default' : buildingId;
             if (currentId === 'default') {
                 setIsLoading(false);
                 return;
@@ -349,16 +251,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 allLedgerEntries,
                 remoteAnnouncements
             ] = await Promise.all([
-                api.fetchBuildingSettings(buildingId).catch(() => ({} as api.BuildingSettings)),
-                api.fetchApartments(buildingId).catch(() => null),
-                api.fetchDues(year, buildingId).catch(() => null),
-                api.fetchDuesColumns(buildingId).catch(() => null),
-                api.fetchStaffRecords(buildingId).catch(() => null),
-                api.fetchLogs(buildingId).catch(() => null),
-                api.fetchMonthlySummary(buildingId, year).catch(() => { dbTablesAvailable.current.monthly_summary = false; return null; }),
-                api.fetchExpenseItems(buildingId).catch(() => { dbTablesAvailable.current.expense_items = false; return null; }),
-                api.fetchAllLedgerEntries(buildingId).catch(() => null), // Changed to return null on error
-                api.fetchAnnouncements(buildingId).catch(() => []),
+                api.fetchBuildingSettings(currentId).catch(() => ({} as api.BuildingSettings)),
+                api.fetchApartments(currentId).catch(() => null),
+                api.fetchDues(year, currentId).catch(() => null),
+                api.fetchDuesColumns(currentId).catch(() => null),
+                api.fetchStaffRecords(currentId).catch(() => null),
+                api.fetchLogs(currentId).catch(() => null),
+                api.fetchMonthlySummary(currentId, year).catch(() => { dbTablesAvailable.current.monthly_summary = false; return null; }),
+                api.fetchExpenseItems(currentId).catch(() => { dbTablesAvailable.current.expense_items = false; return null; }),
+                api.fetchAllLedgerEntries(currentId).catch(() => null), // Changed to return null on error
+                api.fetchAnnouncements(currentId).catch(() => []),
             ]);
 
             // 3) Apartments - DB'den gelirse DB verisini kullan
@@ -648,7 +550,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         api.saveBuildingSetting(buildingId, 'currentYear', year).catch(() => { });
     }, [year]);
 
-    useEffect(() => { localStorage.setItem(bKey("app_bankaToplami"), bankaToplami !== null ? bankaToplami.toString() : ""); }, [bankaToplami]);
     useEffect(() => {
         if (!canSaveToDB() || bankaToplami === null) return;
         api.saveBuildingSetting(buildingId, 'bankaToplami', bankaToplami).catch(() => { });
@@ -790,7 +691,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         amount: number,
         blok?: string
     ) => {
-        const ledgerTag = `aidat_dues_${daireNo}_${blok || ''}`;
+        const blockSuffix = blok ? `_${blok}` : '';
+        const ledgerTag = `aidat_dues_${daireNo}${blockSuffix}`;
         setLedger(prev => {
             const monthData = prev[month] || { giderler: [], gelirler: [] };
             const filteredGelirler = (monthData.gelirler || []).filter(
@@ -818,13 +720,65 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
     };
 
+    const syncPaymentToLedger = (
+        month: string,
+        daireNo: number,
+        sakinAdi: string,
+        amount: number,
+        kategori: string,
+        blok?: string
+    ) => {
+        if (kategori === 'Aidat Ödemesi') {
+            syncDuesPaymentToLedger(month, daireNo, sakinAdi, amount, blok);
+            return;
+        }
+
+        const blockSuffix = blok ? `_${blok}` : '';
+        const ledgerTag = kategori === 'Asansör Demirbaş'
+            ? `asansor_dues_${daireNo}${blockSuffix}`
+            : `extra_fee_${kategori}_${daireNo}${blockSuffix}`;
+
+        const displayAciklama = kategori === 'Asansör Demirbaş'
+            ? `${sakinAdi} ${blok ? `(${blok}) ` : ''}(D:${daireNo}) - Asansör Ödemesi`
+            : `${sakinAdi} ${blok ? `(${blok}) ` : ''}(D:${daireNo}) - ${kategori} Ödemesi`;
+
+        setLedger(prev => {
+            const monthData = prev[month] || { giderler: [], gelirler: [] };
+            const filteredGelirler = (monthData.gelirler || []).filter(
+                r => r.aciklama !== ledgerTag
+            );
+
+            if (amount <= 0) {
+                return { ...prev, [month]: { ...monthData, gelirler: filteredGelirler } };
+            }
+
+            const maxId = filteredGelirler.length > 0 ? Math.max(...filteredGelirler.map(r => r.id)) : 0;
+            const newEntry = {
+                id: maxId + 1,
+                tarih: new Date().toLocaleDateString('tr-TR'),
+                aciklama: ledgerTag,
+                kategori,
+                tutar: amount,
+                tip: 'gelir' as const,
+                ay: month,
+                sakinAdi,
+                daireNo,
+                blok,
+                displayAciklama,
+            };
+
+            return { ...prev, [month]: { ...monthData, gelirler: [...filteredGelirler, newEntry] } };
+        });
+    };
+
     const updateDuesPayment = (daireNo: number, month: string, amount: number, blok?: string) => {
         const apt = apartments.find(a => a.daireNo === daireNo && (blok === undefined || a.blok === blok));
         const sakinAdi = apt?.sakinAdi || String(daireNo);
         // DB'ye aidat çizelgesi kaydı
-        api.updateDuesPayment(daireNo, month, amount, year, blok).catch(console.error);
+        api.updateDuesPayment(daireNo, month, amount, year, blok, buildingId).catch(console.error);
         // DB'ye ledger_entries aidat kaydı (upsert)
         api.upsertLedgerAidatEntry(month, daireNo, sakinAdi, amount, buildingId !== 'default' ? buildingId : undefined, blok).catch(console.error);
+        syncPaymentToLedger(month, daireNo, sakinAdi, amount, 'Aidat Ödemesi', blok);
         addLog("AIDAT_ODEME", `${sakinAdi} (${blok || ''}) - ${month}: ${amount} TL`);
         setDues(prev => prev.map(d => {
             if (d.daireNo === daireNo && (blok === undefined || d.blok === blok)) {
@@ -846,8 +800,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const sakinAdi = apt?.sakinAdi || String(daireNo);
         const effectiveMonth = month || MONTHS[currentMonthIndex];
 
-        api.updateExtraFee(daireNo, column, amount, year, blok).catch(console.error);
+        api.updateExtraFee(daireNo, column, amount, year, blok, buildingId).catch(console.error);
         api.upsertLedgerPaymentEntry(effectiveMonth, daireNo, sakinAdi, amount, column, buildingId !== 'default' ? buildingId : undefined, blok).catch(console.error);
+        syncPaymentToLedger(effectiveMonth, daireNo, sakinAdi, amount, column, blok);
         
         addLog("EK_UCRET_ODEME", `Daire ${daireNo} (${blok || ''}) - ${column}: ${amount} TL`);
         setDues(prev => prev.map(d => {
@@ -870,8 +825,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const sakinAdi = apt?.sakinAdi || String(daireNo);
         const effectiveMonth = month || MONTHS[currentMonthIndex];
 
-        api.updateElevatorPayment(daireNo, amount, year, blok).catch(console.error);
+        api.updateElevatorPayment(daireNo, amount, year, blok, buildingId).catch(console.error);
         api.upsertLedgerPaymentEntry(effectiveMonth, daireNo, sakinAdi, amount, 'Asansör Demirbaş', buildingId !== 'default' ? buildingId : undefined, blok).catch(console.error);
+        syncPaymentToLedger(effectiveMonth, daireNo, sakinAdi, amount, 'Asansör Demirbaş', blok);
         
         addLog("ASANSOR_ODEME", `Daire ${daireNo} (${blok || ''}): ${amount} TL`);
         setDues(prev => prev.map(d => {
@@ -890,7 +846,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
     const updateApartment = (daireNo: number, data: Partial<Apartment>, oldBlock?: string) => {
-        api.updateApartment(daireNo, data, oldBlock).catch(console.error);
+        api.updateApartment(daireNo, data, oldBlock, buildingId).catch(console.error);
         setApartments(prev => prev.map(apt => (apt.daireNo === daireNo && (oldBlock === undefined || apt.blok === oldBlock)) ? { ...apt, ...data } : apt));
     };
 
@@ -950,7 +906,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const deleteApartment = (daireNo: number, blok?: string) => {
         if (confirm(`Daire ${daireNo} ${blok ? `(${blok} Blok) ` : ''}silinecek. Emin misiniz?`)) {
-            api.deleteApartment(daireNo, blok).catch(console.error);
+            api.deleteApartment(daireNo, blok, buildingId).catch(console.error);
             const apt = apartments.find(a => a.daireNo === daireNo && (blok === undefined || a.blok === blok));
             setApartments(prev => prev.filter(a => !(a.daireNo === daireNo && (blok === undefined || a.blok === blok))));
             setDues(prev => prev.filter(d => !(d.daireNo === daireNo && (blok === undefined || d.blok === blok))));
@@ -1106,20 +1062,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
-    // Helper: Save current data to archival storage
-    const saveCurrentYearData = () => {
-        const data: AppData = { dues, ledger, monthlySummary, staffRecords, apartments, duesColumns };
-        localStorage.setItem(`app_data_${year}`, JSON.stringify(data));
-        if (!availableYears.includes(year)) {
-            setAvailableYears(prev => [...prev, year].sort());
-        }
-        localStorage.setItem(`app_data_${year}`, JSON.stringify(data));
-    };
-
     const startNewYear = () => {
         if (confirm(`${year + 1} yılına geçmek istediğinize emin misiniz? (Mevcut yıl verisi saklanacaktır)`)) {
-            saveCurrentYearData();
-
             const newDues: MonthlyDues[] = dues.map(d => ({
                 ...d,
                 devredenBorc2024: d.odenecekToplamBorc,
@@ -1148,22 +1092,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
     const switchYear = (targetYear: number) => {
-        saveCurrentYearData();
-
-        const savedData = localStorage.getItem(`app_data_${targetYear}`);
-        if (savedData) {
-            const data: AppData = JSON.parse(savedData);
-            setYear(targetYear);
-            setDues(data.dues);
-            setLedger(data.ledger);
-            setMonthlySummary(data.monthlySummary);
-            setStaffRecords(data.staffRecords);
-            setApartments(data.apartments);
-            setDuesColumns(data.duesColumns || []);
-            toast.success(`${targetYear} yılına geçiş yapıldı.`);
-        } else {
-            toast.error(`${targetYear} verisi bulunamadı.`);
-        }
+        setYear(targetYear);
+        refreshData(true).catch(console.error);
+        toast.success(`${targetYear} yılına geçiş yapıldı.`);
     }
 
     const updateApartmentName = (name: string) => {
@@ -1287,15 +1218,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         data.forEach(imported => {
             if (imported.odemeler) {
                 Object.entries(imported.odemeler).forEach(([month, amount]) => {
-                    api.updateDuesPayment(imported.daireNo, month, amount, year).catch(console.error);
+                    api.updateDuesPayment(imported.daireNo, month, amount, year, undefined, buildingId).catch(console.error);
                 });
             }
             if (imported.asansor !== undefined) {
-                api.updateElevatorPayment(imported.daireNo, imported.asansor, year).catch(console.error);
+                api.updateElevatorPayment(imported.daireNo, imported.asansor, year, undefined, buildingId).catch(console.error);
             }
             if (imported.extraFees) {
                 Object.entries(imported.extraFees).forEach(([col, amount]) => {
-                    api.updateExtraFee(imported.daireNo, col, amount, year).catch(console.error);
+                    api.updateExtraFee(imported.daireNo, col, amount, year, undefined, buildingId).catch(console.error);
                 });
             }
         });
@@ -1304,7 +1235,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     // localStorage + DB sync for column fees
-    useEffect(() => { localStorage.setItem(bKey("app_duesColumnFees"), JSON.stringify(duesColumnFees)); }, [duesColumnFees]);
     useEffect(() => {
         if (!canSaveToDB()) return;
         api.saveBuildingSetting(buildingId, 'duesColumnFees', duesColumnFees).catch(() => { });

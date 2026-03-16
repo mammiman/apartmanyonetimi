@@ -17,6 +17,8 @@ import { useState, useEffect } from "react";
 import { signOut } from "@/lib/supabase";
 import * as api from "@/lib/api";
 import { toast } from "sonner";
+import { setActiveBuildingId } from "@/lib/buildingSelection";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const navItems = [
   { title: "Anasayfa", url: "/", icon: LayoutDashboard },
@@ -63,9 +65,9 @@ export function AppSidebar({ mobileOpen = false, onMobileClose }: AppSidebarProp
   };
 
   const handleSwitchBuilding = () => {
-    // selectedBuildingId'yi temizle → BuildingSetup gösterilsin
-    localStorage.removeItem("selectedBuildingId");
-    window.location.reload();
+    // aktif bina seçimini temizle → BuildingSetup gösterilsin
+    setActiveBuildingId(null);
+    navigate("/");
   };
 
   return (
@@ -138,6 +140,9 @@ export function AppSidebar({ mobileOpen = false, onMobileClose }: AppSidebarProp
 
         {/* Footer - Logout and Collapse — sticky at bottom */}
         <div className="border-t border-sidebar-border px-3 py-3 space-y-1 shrink-0">
+          <div className="px-1 py-1">
+            <ThemeToggle compact={collapsed} />
+          </div>
 
           {/* Bina Değiştir — sadece birden fazla bina varsa göster */}
           {userBuildingCount > 1 && (

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/supabase";
 import { Menu, AlertCircle, RefreshCw } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import { Button } from "./ui/button";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface LayoutProps {
   children: ReactNode;
@@ -58,7 +59,14 @@ export function Layout({ children, hideSidebar = false }: LayoutProps) {
             >
               <Menu className="h-5 w-5" />
             </button>
-            <span className="text-sm font-semibold text-foreground truncate">Apartman Yönetimi</span>
+            <span className="text-sm font-semibold text-foreground truncate flex-1">Apartman Yönetimi</span>
+            <ThemeToggle compact />
+          </div>
+        )}
+
+        {shouldHideSidebar && (
+          <div className="flex items-center justify-end px-4 py-3 border-b border-border bg-background sticky top-0 z-20">
+            <ThemeToggle compact />
           </div>
         )}
 

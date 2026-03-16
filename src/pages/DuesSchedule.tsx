@@ -429,7 +429,7 @@ const DuesSchedule = () => {
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Aidat Ödeme Çizelgesi</h1>
             <p className="text-gray-500 dark:text-gray-400 mt-1 flex flex-wrap items-center gap-2">
               <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-xs font-bold">{year} Yılı</span>
-              <span className="text-slate-300">|</span>
+              <span className="text-slate-300 dark:text-slate-600">|</span>
               Aylık Aidat:
               {isEditingDuesAmount ? (
                 <Input
@@ -464,7 +464,7 @@ const DuesSchedule = () => {
             </p>
           </div>
 
-          <div className="flex flex-col bg-white p-2 rounded-lg border shadow-sm items-end min-w-[150px]" style={{ textAlign: 'center' }}>
+          <div className="flex flex-col bg-card p-2 rounded-lg border border-border shadow-sm items-end min-w-[150px]" style={{ textAlign: 'center' }}>
             <span className="text-xs text-muted-foreground mb-1 font-medium">Yıllık Asansör</span>
             <p className="text-xl font-bold text-purple-600 flex items-center">
               <span className="text-sm mr-1">₺</span>
@@ -489,12 +489,12 @@ const DuesSchedule = () => {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 bg-muted/30 p-2 rounded-xl border w-full lg:w-auto">
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors mr-2 bg-white/50 px-2 py-1 rounded-lg border">
+            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors mr-2 bg-background/70 dark:bg-muted/40 px-2 py-1 rounded-lg border border-border">
               <input
                 type="checkbox"
                 checked={showFutureMonths}
                 onChange={(e) => setShowFutureMonths(e.target.checked)}
-                className="rounded border-gray-300 text-primary focus:ring-primary h-3.5 w-3.5"
+                className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5"
               />
               Gelecek Aylar
             </label>
@@ -619,7 +619,7 @@ const DuesSchedule = () => {
                 onChange={handleFileSelect}
                 className="hidden"
               />
-              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="bg-green-50 hover:bg-green-100 border-green-300 text-green-700">
+              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="bg-green-50 hover:bg-green-100 border-green-300 text-green-700 dark:bg-green-950/30 dark:hover:bg-green-900/40 dark:border-green-800 dark:text-green-300">
                 <Upload className="w-4 h-4 mr-1" /> İçe Aktar
               </Button>
             </div>
@@ -721,17 +721,17 @@ const DuesSchedule = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setIsSheetSelectOpen(false)}>
             <div className="fixed inset-0 bg-black/50" />
             <div
-              className="relative z-50 bg-white rounded-lg shadow-xl p-5 w-[340px] max-h-[400px]"
+              className="relative z-50 bg-card text-card-foreground rounded-lg shadow-xl p-5 w-[340px] max-h-[400px] border border-border"
               onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-base font-semibold mb-1">Sayfa Seçin</h3>
-              <p className="text-xs text-gray-500 mb-3">İçe aktarılacak sayfayı seçin:</p>
+              <p className="text-xs text-muted-foreground mb-3">İçe aktarılacak sayfayı seçin:</p>
               <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto">
                 {sheetNames.map((name, idx) => (
                   <button
                     key={idx}
                     type="button"
-                    className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-gray-200 bg-white text-left text-sm font-medium hover:bg-blue-50 hover:border-blue-400 active:bg-blue-100 transition-colors cursor-pointer"
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-border bg-background text-left text-sm font-medium hover:bg-blue-50 hover:border-blue-400 active:bg-blue-100 dark:hover:bg-blue-900/30 dark:hover:border-blue-700 dark:active:bg-blue-900/40 transition-colors cursor-pointer"
                     onClick={() => {
                       const wb = workbookRefObj.current;
                       if (wb) {
@@ -747,7 +747,7 @@ const DuesSchedule = () => {
               <div className="mt-3 flex justify-end">
                 <button
                   type="button"
-                  className="px-3 py-1.5 text-sm rounded-md border border-gray-300 bg-white hover:bg-gray-50 transition-colors"
+                  className="px-3 py-1.5 text-sm rounded-md border border-border bg-background hover:bg-muted transition-colors"
                   onClick={() => setIsSheetSelectOpen(false)}
                 >
                   İptal
@@ -770,7 +770,7 @@ const DuesSchedule = () => {
               <div className="overflow-x-auto rounded border max-h-[40vh] overflow-y-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-gray-100">
+                    <TableRow className="bg-gray-100 dark:bg-slate-800">
                       <TableHead className="text-[10px] font-bold py-1 px-2">No</TableHead>
                       <TableHead className="text-[10px] font-bold py-1 px-2">Sakin</TableHead>
                       <TableHead className="text-[10px] font-bold py-1 px-2">Devir</TableHead>
@@ -782,7 +782,7 @@ const DuesSchedule = () => {
                     {importPreview?.map((item, idx) => {
                       const matchedDaire = dues.find(d => d.daireNo === item.daireNo && d.blok === item.blok);
                       return (
-                        <TableRow key={idx} className={matchedDaire ? '' : 'bg-yellow-50'}>
+                        <TableRow key={idx} className={matchedDaire ? '' : 'bg-yellow-50 dark:bg-yellow-900/20'}>
                           <TableCell className="text-[10px] font-bold py-1 px-2">{item.daireNo}</TableCell>
                           <TableCell className="text-[10px] py-1 px-2 max-w-[100px] truncate">{item.sakinAdi || '-'}</TableCell>
                           <TableCell className="text-[10px] py-1 px-2">{item.devir !== undefined ? formatNumber(item.devir) : '-'}</TableCell>
@@ -804,7 +804,7 @@ const DuesSchedule = () => {
             </div>
             <DialogFooter>
               <Button variant="outline" size="sm" onClick={() => { setImportPreview(null); setIsImportOpen(false); }}>İptal</Button>
-              <Button size="sm" onClick={confirmImport} className="bg-green-600 hover:bg-green-700">
+              <Button size="sm" onClick={confirmImport} className="bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600">
                 İçe Aktar ({importPreview?.filter(p => dues.some(d => d.daireNo === p.daireNo && d.blok === p.blok)).length || 0} daire)
               </Button>
             </DialogFooter>
@@ -814,7 +814,7 @@ const DuesSchedule = () => {
         <div className="rounded-xl border shadow-sm bg-card overflow-hidden">
           <div className="overflow-x-auto">
             {/* Mobilde sağa kaydırma ipucu */}
-            <div className="lg:hidden flex items-center justify-center gap-2 py-2 text-[10px] text-muted-foreground animate-pulse border-b bg-slate-50">
+            <div className="lg:hidden flex items-center justify-center gap-2 py-2 text-[10px] text-muted-foreground animate-pulse border-b bg-slate-50 dark:bg-slate-900">
               <ArrowLeftRight className="w-3 h-3" />
               Sağa kaydırarak diğer ayları görebilirsiniz
             </div>
@@ -872,22 +872,22 @@ const DuesSchedule = () => {
                     <TableRow
                       key={`${row.blok || ''}-${row.daireNo}`}
                       className={`transition-colors group border-b border-slate-100 ${isManager
-                        ? 'bg-purple-50/50 hover:bg-purple-100/50 opacity-60 cursor-not-allowed'
-                        : 'hover:bg-blue-50/50'
+                        ? 'bg-purple-50/50 hover:bg-purple-100/50 dark:bg-purple-950/20 dark:hover:bg-purple-900/30 opacity-60 cursor-not-allowed'
+                        : 'hover:bg-blue-50/50 dark:hover:bg-blue-950/20'
                         }`}
                     >
-                      {!hiddenColumns.includes('no') && <TableCell className={`sticky left-0 ${isManager ? 'bg-purple-50/50 group-hover:bg-purple-100/50' : 'bg-white group-hover:bg-blue-50'} z-20 font-bold text-center border-r shadow-[1px_0_0_0_hsl(var(--border))] text-slate-700 text-[10px] md:text-sm`}>
+                      {!hiddenColumns.includes('no') && <TableCell className={`sticky left-0 ${isManager ? 'bg-purple-50/50 group-hover:bg-purple-100/50 dark:bg-purple-950/20 dark:group-hover:bg-purple-900/30' : 'bg-white dark:bg-slate-900 group-hover:bg-blue-50 dark:group-hover:bg-blue-950/20'} z-20 font-bold text-center border-r shadow-[1px_0_0_0_hsl(var(--border))] text-slate-700 dark:text-slate-200 text-[10px] md:text-sm`}>
                         {row.daireNo}
                         {isManager && (
                           <span className="ml-1 text-[8px] md:text-[10px] text-purple-600">👤</span>
                         )}
                       </TableCell>}
-                      {!hiddenColumns.includes('sakin') && <TableCell className={`sticky left-[40px] md:left-[50px] ${isManager ? 'bg-purple-50/50 group-hover:bg-purple-100/50' : 'bg-white group-hover:bg-blue-50'} z-20 font-medium text-[10px] md:text-xs whitespace-nowrap border-r shadow-[1px_0_0_0_hsl(var(--border))] text-slate-900`}>
+                      {!hiddenColumns.includes('sakin') && <TableCell className={`sticky left-[40px] md:left-[50px] ${isManager ? 'bg-purple-50/50 group-hover:bg-purple-100/50 dark:bg-purple-950/20 dark:group-hover:bg-purple-900/30' : 'bg-white dark:bg-slate-900 group-hover:bg-blue-50 dark:group-hover:bg-blue-950/20'} z-20 font-medium text-[10px] md:text-xs whitespace-nowrap border-r shadow-[1px_0_0_0_hsl(var(--border))] text-slate-900 dark:text-slate-100`}>
                         {row.sakinAdi}
                       </TableCell>}
 
                       {/* DEVİR - Düzenlenebilir */}
-                      {!hiddenColumns.includes('devir') && <TableCell className={`text-center text-xs font-medium border-r bg-orange-50/30 ${row.devredenBorc2024 < 0 ? 'text-red-600 font-bold' : 'text-slate-600'}`}>
+                      {!hiddenColumns.includes('devir') && <TableCell className={`text-center text-xs font-medium border-r bg-orange-50/30 dark:bg-orange-950/20 ${row.devredenBorc2024 < 0 ? 'text-red-600 dark:text-red-400 font-bold' : 'text-slate-600 dark:text-slate-300'}`}>
                         {isEditing ? (
                             <Input
                               type="number"
@@ -922,18 +922,18 @@ const DuesSchedule = () => {
                         let cellClass = "";
 
                         if (isFullPaid) {
-                          bgClass = "bg-emerald-200 text-emerald-900 font-bold shadow-sm";
+                          bgClass = "bg-emerald-200 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-300 font-bold shadow-sm";
                         } else if (isUnpaid && isPastMonth) {
-                          bgClass = "bg-red-500 text-white font-extrabold shadow-lg";
-                          cellClass = "bg-red-100 ring-2 ring-red-500";
+                          bgClass = "bg-red-500 dark:bg-red-700 text-white font-extrabold shadow-lg";
+                          cellClass = "bg-red-100 dark:bg-red-950/30 ring-2 ring-red-500 dark:ring-red-700";
                         } else if (isManager) {
-                          bgClass = "text-purple-400 font-bold";
+                          bgClass = "text-purple-500 dark:text-purple-300 font-bold";
                         }
 
                         return (
                           <TableCell
                             key={month}
-                            className={`p-1 text-center border-r border-slate-100 relative ${cellClass} ${isEditing ? 'bg-slate-50' : ''}`}
+                            className={`p-1 text-center border-r border-slate-100 dark:border-slate-800 relative ${cellClass} ${isEditing ? 'bg-slate-50 dark:bg-slate-900/40' : ''}`}
                           >
                             {isEditing ? (
                               <div className="flex flex-col gap-1">
@@ -951,7 +951,7 @@ const DuesSchedule = () => {
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      className="h-6 text-[10px] px-1 bg-green-50 hover:bg-green-100 border-green-300 text-green-700"
+                                      className="h-6 text-[10px] px-1 bg-green-50 hover:bg-green-100 border-green-300 text-green-700 dark:bg-green-950/30 dark:hover:bg-green-900/40 dark:border-green-800 dark:text-green-300"
                                       onClick={() => updateDuesPayment(row.daireNo, month, monthlyDuesAmount, row.blok)}
                                     >
                                       ✓ Ödendi
@@ -972,7 +972,7 @@ const DuesSchedule = () => {
                       })}
 
                       {/* Elevator */}
-                      {!hiddenColumns.includes('asansor') && <TableCell className="text-center p-1 border-r border-indigo-100 bg-indigo-50/30">
+                      {!hiddenColumns.includes('asansor') && <TableCell className="text-center p-1 border-r border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/30 dark:bg-indigo-950/20">
                         {isEditing ? (
                           apartment?.asansorTabi ? (
                             <div className="flex flex-col gap-1">
@@ -986,7 +986,7 @@ const DuesSchedule = () => {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="h-6 text-[10px] px-1 bg-indigo-50 hover:bg-indigo-100 border-indigo-300 text-indigo-700"
+                                  className="h-6 text-[10px] px-1 bg-indigo-50 hover:bg-indigo-100 border-indigo-300 text-indigo-700 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/40 dark:border-indigo-800 dark:text-indigo-300"
                                   onClick={() => updateElevatorPayment(row.daireNo, annualElevatorFee, row.blok)}
                                 >
                                   ✓ Öde
@@ -994,7 +994,7 @@ const DuesSchedule = () => {
                               )}
                             </div>
                           ) : (
-                            <span className="text-xs text-gray-400">-</span>
+                            <span className="text-xs text-gray-400 dark:text-gray-500">-</span>
                           )
                         ) : (
                           apartment?.asansorTabi ? (
@@ -1005,20 +1005,20 @@ const DuesSchedule = () => {
                             ) : (
                               <div className="flex flex-col items-center">
                                 <span className="text-xs font-bold text-red-500">{formatNumber(row.asansorOdemesi)}</span>
-                                <span className="text-[9px] text-gray-500 line-through decoration-red-300">
+                                <span className="text-[9px] text-gray-500 dark:text-gray-400 line-through decoration-red-300 dark:decoration-red-700">
                                   Of {formatNumber(annualElevatorFee)}
                                 </span>
                               </div>
                             )
                           ) : (
-                            <span className="text-xs text-gray-400 font-medium">-</span>
+                            <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">-</span>
                           )
                         )}
                       </TableCell>}
 
                       {/* Extra Columns */}
                       {(duesColumns || []).map(col => !hiddenColumns.includes(col) && (
-                        <TableCell key={col} className="text-center p-1 border-r border-sky-100 bg-sky-50/30">
+                        <TableCell key={col} className="text-center p-1 border-r border-sky-100 dark:border-sky-900/50 bg-sky-50/30 dark:bg-sky-950/20">
                           {isEditing ? (
                             <div className="flex flex-col gap-1">
                               <Input
@@ -1031,7 +1031,7 @@ const DuesSchedule = () => {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="h-6 text-[10px] px-1 bg-sky-50 hover:bg-sky-100 border-sky-300 text-sky-700"
+                                  className="h-6 text-[10px] px-1 bg-sky-50 hover:bg-sky-100 border-sky-300 text-sky-700 dark:bg-sky-950/30 dark:hover:bg-sky-900/40 dark:border-sky-800 dark:text-sky-300"
                                   onClick={() => updateExtraFee(row.daireNo, col, duesColumnFees[col], row.blok)}
                                 >
                                   ✓ Öde
@@ -1048,32 +1048,32 @@ const DuesSchedule = () => {
                       ))}
 
                       {/* Annual Total */}
-                      {!hiddenColumns.includes('yilToplam') && <TableCell className="text-center text-xs font-bold text-slate-700 bg-slate-50/50 border-r border-slate-200">
+                      {!hiddenColumns.includes('yilToplam') && <TableCell className="text-center text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-50/50 dark:bg-slate-900/40 border-r border-slate-200 dark:border-slate-800">
                         {formatNumber(annualExpected)}
                       </TableCell>}
 
                       {/* Total Paid */}
-                      {!hiddenColumns.includes('toplamOdenen') && <TableCell className="text-right text-xs font-bold bg-emerald-50/30 text-emerald-700 border-r border-emerald-100">
+                      {!hiddenColumns.includes('toplamOdenen') && <TableCell className="text-right text-xs font-bold bg-emerald-50/30 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 border-r border-emerald-100 dark:border-emerald-900/50">
                         {formatNumber(row.toplamOdenen)}
                       </TableCell>}
 
                       {/* Balance (BORÇ) */}
-                      {!hiddenColumns.includes('borc') && <TableCell className={`text-right bg-white group-hover:bg-blue-50/50 border-l shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] text-[10px] md:text-xs`}>
-                        <span className={`font-bold px-1.5 py-0.5 md:px-2 md:py-1 rounded ${isDebt ? "text-red-600 bg-red-50" : "text-emerald-700 bg-emerald-50"}`}>
+                      {!hiddenColumns.includes('borc') && <TableCell className={`text-right bg-white dark:bg-slate-900 group-hover:bg-blue-50/50 dark:group-hover:bg-blue-950/20 border-l shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] text-[10px] md:text-xs`}>
+                        <span className={`font-bold px-1.5 py-0.5 md:px-2 md:py-1 rounded ${isDebt ? "text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-950/30" : "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/30"}`}>
                           {formatNumber(displayBalance)}
                         </span>
                       </TableCell>}
 
                       {/* GECİKME CEZASI */}
                       {!hiddenColumns.includes('gecikmeCezasi') && (
-                        <TableCell className="text-right text-[10px] md:text-xs text-destructive font-medium bg-red-50/50">
+                        <TableCell className="text-right text-[10px] md:text-xs text-destructive font-medium bg-red-50/50 dark:bg-red-950/20">
                           {lateFee > 0 ? formatNumber(lateFee) : "—"}
                         </TableCell>
                       )}
 
                       {/* ÖDENECEKLER TOPLAM */}
-                      {!hiddenColumns.includes('odenecekToplam') && <TableCell className={`text-right sticky right-0 bg-slate-50 group-hover:bg-blue-100/50 border-l z-20 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)]`}>
-                        <span className={`text-[10px] md:text-xs font-black px-1.5 py-0.5 md:px-2 md:py-1 rounded ${displayBalance + lateFee > 0 ? "text-red-700 bg-red-100" : "text-emerald-700 bg-emerald-100"}`}>
+                      {!hiddenColumns.includes('odenecekToplam') && <TableCell className={`text-right sticky right-0 bg-slate-50 dark:bg-slate-900 group-hover:bg-blue-100/50 dark:group-hover:bg-blue-950/30 border-l z-20 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)]`}>
+                        <span className={`text-[10px] md:text-xs font-black px-1.5 py-0.5 md:px-2 md:py-1 rounded ${displayBalance + lateFee > 0 ? "text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950/30" : "text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/30"}`}>
                           {formatNumber(displayBalance + lateFee)}
                         </span>
                       </TableCell>}

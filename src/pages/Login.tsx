@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KeyRound, UserPlus } from "lucide-react";
 import { signIn, signUp, signInWithAccessCode, sendPasswordResetEmail, supabase, updateCurrentUserPassword } from "@/lib/supabase";
+import { setActiveBuildingId } from "@/lib/buildingSelection";
+import * as api from "@/lib/api";
 import { toast } from "sonner";
 
 const Login = () => {
@@ -18,6 +20,7 @@ const Login = () => {
     // Admin login state
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [adminBuildingCode, setAdminBuildingCode] = useState("");
 
     // Admin register state
     const [regEmail, setRegEmail] = useState("");
@@ -26,6 +29,7 @@ const Login = () => {
 
     // Resident login state
     const [accessCode, setAccessCode] = useState("");
+    const [buildingCode, setBuildingCode] = useState("");
 
     useEffect(() => {
         if (window.location.href.includes("type=recovery")) {
@@ -48,8 +52,24 @@ const Login = () => {
         setIsLoading(true);
 
         try {
+            const selectedAdminBuildingCode = adminBuildingCode.trim().toUpperCase();
             localStorage.removeItem('residentSession');
             await signIn(email, password);
+
+            if (selectedAdminBuildingCode) {
+                const userBuildings = await api.fetchUserBuildings();
+                const matchedBuilding = userBuildings.find(
+                    (b) => b.access_code?.toUpperCase() === selectedAdminBuildingCode
+                );
+
+                if (!matchedBuilding) {
+                    await supabase.auth.signOut();
+                    throw new Error("Bu apartman kodu hesabınıza tanımlı değil");
+                }
+
+                setActiveBuildingId(matchedBuilding.id);
+            }
+
             toast.success("Giriş başarılı!");
             
             // GitHub Pages HashRouter uyumluluğu için
@@ -62,6 +82,12 @@ const Login = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleResetAdminBuildingSelection = () => {
+        setActiveBuildingId(null);
+        setAdminBuildingCode("");
+        toast.success("Yönetici apartman seçimi sıfırlandı.");
     };
 
     const handleAdminRegister = async (e: React.FormEvent) => {
@@ -96,7 +122,8 @@ const Login = () => {
         setIsLoading(true);
 
         try {
-            await signInWithAccessCode(accessCode);
+            const selectedBuildingCode = buildingCode.trim().toUpperCase();
+            await signInWithAccessCode(accessCode, selectedBuildingCode || undefined);
             toast.success("Giriş başarılı!");
 
             // GitHub Pages'te HashRouter base hatası olmaması için direkt hash atıp yeniliyoruz
@@ -105,10 +132,17 @@ const Login = () => {
                 window.location.reload();
             }, 50);
         } catch (error: any) {
-            toast.error("Geçersiz erişim kodu");
+            toast.error(error?.message || "Geçersiz erişim kodu");
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleResetBuildingSelection = () => {
+        setActiveBuildingId(null);
+        setBuildingCode("");
+        localStorage.removeItem('residentSession');
+        toast.success("Apartman seçimi sıfırlandı. Yeni apartman kodu girebilirsiniz.");
     };
 
     const handleForgotPassword = async () => {
@@ -253,6 +287,21 @@ const Login = () => {
                                             required
                                         />
                                     </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="adminBuildingCode">Apartman Kodu (Opsiyonel)</Label>
+                                        <Input
+                                            id="adminBuildingCode"
+                                            type="text"
+                                            placeholder="ABC123"
+                                            maxLength={6}
+                                            value={adminBuildingCode}
+                                            onChange={(e) => setAdminBuildingCode(e.target.value.toUpperCase())}
+                                            className="text-center tracking-[0.25em] font-mono"
+                                        />
+                                        <p className="text-xs text-muted-foreground">
+                                            Farklı bir apartmana geçmek için girişte bu kodu değiştirebilirsiniz
+                                        </p>
+                                    </div>
                                     <div className="space-y-2 pt-1">
                                         <Label htmlFor="forgotEmail">Şifre Sıfırlama E-postası</Label>
                                         <div className="flex gap-2">
@@ -269,9 +318,16 @@ const Login = () => {
                                         </div>
                                     </div>
                                 </CardContent>
-                                <CardFooter>
-                                    <Button type="submit" className="w-full" disabled={isLoading}>
+                                <CardFooter className="flex flex-col gap-2">
+                                    <Button
+                                        type="submit"
+                                        className="w-full"
+                                        disabled={isLoading || (adminBuildingCode.length > 0 && adminBuildingCode.length !== 6)}
+                                    >
                                         {isLoading ? "Giriş yapılıyor..." : "Giriş Yap"}
+                                    </Button>
+                                    <Button type="button" variant="outline" className="w-full" onClick={handleResetAdminBuildingSelection}>
+                                        Apartman Seçimini Sıfırla
                                     </Button>
                                 </CardFooter>
                             </form>
@@ -337,10 +393,25 @@ const Login = () => {
                         <Card>
                             <CardHeader>
                                 <CardTitle>Sakin Girişi</CardTitle>
-                                <CardDescription>6 haneli erişim kodunuzu girin</CardDescription>
+                                <CardDescription>6 haneli erişim kodunuzu girin, gerekirse apartman kodunu değiştirin</CardDescription>
                             </CardHeader>
                             <form onSubmit={handleResidentLogin}>
                                 <CardContent className="space-y-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="buildingCode">Apartman Kodu (Opsiyonel)</Label>
+                                        <Input
+                                            id="buildingCode"
+                                            type="text"
+                                            placeholder="ABC123"
+                                            maxLength={6}
+                                            value={buildingCode}
+                                            onChange={(e) => setBuildingCode(e.target.value.toUpperCase())}
+                                            className="text-center tracking-[0.25em] font-mono"
+                                        />
+                                        <p className="text-xs text-muted-foreground text-center">
+                                            Başka bir apartmana giriş yapacaksanız önce bu kodu güncelleyin
+                                        </p>
+                                    </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="accessCode">Erişim Kodu</Label>
                                         <div className="relative">
@@ -361,9 +432,16 @@ const Login = () => {
                                         </p>
                                     </div>
                                 </CardContent>
-                                <CardFooter>
-                                    <Button type="submit" className="w-full" disabled={isLoading || accessCode.length !== 6}>
+                                <CardFooter className="flex flex-col gap-2">
+                                    <Button
+                                        type="submit"
+                                        className="w-full"
+                                        disabled={isLoading || accessCode.length !== 6 || (buildingCode.length > 0 && buildingCode.length !== 6)}
+                                    >
                                         {isLoading ? "Giriş yapılıyor..." : "Giriş Yap"}
+                                    </Button>
+                                    <Button type="button" variant="outline" className="w-full" onClick={handleResetBuildingSelection}>
+                                        Apartman Seçimini Sıfırla
                                     </Button>
                                 </CardFooter>
                             </form>

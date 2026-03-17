@@ -21,14 +21,38 @@ export const signIn = async (email: string, password: string) => {
     return data;
 };
 
-export const signInWithAccessCode = async (accessCode: string) => {
+export const signInWithAccessCode = async (accessCode: string, buildingCode?: string) => {
     const codeUpper = accessCode.toUpperCase();
+    const buildingCodeUpper = buildingCode?.trim().toUpperCase();
+    let requestedBuildingId: string | null = null;
+
+    if (buildingCodeUpper) {
+        const { data: building, error: buildingError } = await supabase
+            .from('buildings')
+            .select('id')
+            .eq('access_code', buildingCodeUpper)
+            .maybeSingle();
+
+        if (buildingError) {
+            throw new Error('Apartman kodu doğrulanamadı');
+        }
+
+        if (!building?.id) {
+            throw new Error('Geçersiz apartman kodu');
+        }
+
+        requestedBuildingId = building.id;
+    }
 
     const { data: apt, error } = await supabase
         .rpc('verify_access_code', { p_access_code: codeUpper });
 
     if (error || !apt) {
         throw new Error('Geçersiz erişim kodu');
+    }
+
+    if (requestedBuildingId && apt.building_id !== requestedBuildingId) {
+        throw new Error('Bu erişim kodu seçilen apartmana ait değil');
     }
 
     const residentSession = {
